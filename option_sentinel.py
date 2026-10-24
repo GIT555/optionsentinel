@@ -464,6 +464,103 @@ class StrategyScanner:
 
         return recommendations
 
+    def generate_leap_put_matrix(self, all_tickers: bool = True) -> List[Dict[str, Any]]:
+        """
+        Generates Bearish / Overbought LEAP Long Put (-0.85 Delta, 340+ DTE) with
+        Poor Man's Covered Put (PMCP, -0.30 Delta, 30-45 DTE) overlay.
+        Trigger: 14-Day RSI > 65 (Overbought Rally) AND IV Rank < 25% (Cheap Put Volatility).
+        Excludes 3x Leveraged ETFs (TQQQ, SOXL, SPXL).
+        """
+        recommendations: List[Dict[str, Any]] = []
+
+        for sym, meta in WATCHLIST_MATRIX.items():
+            if meta.is_leveraged:
+                continue
+
+            snap = self.snapshots.get(sym)
+            if not snap:
+                continue
+
+            is_qualified = (snap.rsi_14 > 65.0 and snap.iv_rank < 25.0)
+            if not is_qualified and not all_tickers:
+                continue
+
+            spot = snap.spot
+            iv = max(0.10, snap.iv_current)
+            leap_contract = f"{sym}-LEAP-PUT"
+            leap_strike = round(spot * 1.15)
+            leap_bid, leap_ask, leap_mid = 0.0, 0.0, 0.0
+            leap_dte = 390
+
+            leaps = self.market_client.get_live_leap_options(sym, min_dte=340, option_type="PUT")
+            if leaps:
+                best_leap = min(leaps, key=lambda c: abs(c.delta_approx - (-0.85)))
+                leap_contract = best_leap.contract_symbol
+                leap_strike = best_leap.strike
+                leap_bid = best_leap.bid
+                leap_ask = best_leap.ask
+                leap_mid = best_leap.mid
+                leap_dte = best_leap.dte
+
+            if leap_mid <= 0:
+                leap_mid = round(self.math.black_scholes_price(spot, leap_strike, leap_dte, iv, 0.045, is_call=False), 2)
+                leap_bid = round(max(0.01, leap_mid * 0.96), 2)
+                leap_ask = round(leap_mid * 1.04, 2)
+
+            capital_saved = round((spot * 100.0) - (leap_mid * 100.0), 2)
+
+            # PMCP Short Leg (45 DTE -0.30 Delta Put)
+            pmcp_contract = f"{sym}-PMCP-0.30D"
+            pmcp_strike = round(spot * 0.96)
+            pmcp_mid = round(spot * 0.015, 2)
+            pmcp_dte = 45
+
+            chain = self.market_client.get_live_option_chain(sym, 28, 55)
+            puts = [c for c in chain if c.option_type == "PUT"]
+            if puts:
+                best_pmcp = min(puts, key=lambda c: abs(c.delta_approx - (-0.30)))
+                pmcp_contract = best_pmcp.contract_symbol
+                pmcp_strike = best_pmcp.strike
+                pmcp_mid = best_pmcp.mid
+                pmcp_dte = best_pmcp.dte
+
+            net_debit = round(leap_mid - pmcp_mid, 2)
+            intrinsic = max(0.0, leap_strike - spot)
+            extrinsic = max(0.0, leap_mid - intrinsic)
+            effective_leverage = round((0.85 * spot) / leap_mid, 2) if leap_mid > 0 else 0.0
+            annual_drag = round((extrinsic / spot) * (365.0 / max(1, leap_dte)) * 100.0, 2) if spot > 0 else 0.0
+            spread_width = round(leap_strike - pmcp_strike, 2)
+            gap_safety = "SAFE: Zero Downside Crash Risk" if spread_width >= net_debit else "MONITOR: Spread < Debit"
+
+            recommendations.append({
+                "symbol": sym,
+                "spot": spot,
+                "iv": round(iv * 100.0, 1),
+                "iv_rank": snap.iv_rank,
+                "rsi": snap.rsi_14,
+                "is_qualified": is_qualified,
+                "status": "QUALIFIED PUT TRIGGER" if is_qualified else "CHECK / WATCHLIST",
+                "leap_target_delta": -0.85,
+                "leap_target_dte": leap_dte,
+                "leap_strike": leap_strike,
+                "leap_contract": leap_contract,
+                "leap_bid": leap_bid,
+                "leap_ask": leap_ask,
+                "leap_mid": leap_mid,
+                "capital_saved_vs_short": capital_saved,
+                "effective_leverage": effective_leverage,
+                "annual_drag_pct": annual_drag,
+                "pmcp_strike": pmcp_strike,
+                "pmcp_contract": pmcp_contract,
+                "pmcp_mid": pmcp_mid,
+                "pmcp_dte": pmcp_dte,
+                "net_debit": net_debit,
+                "spread_width": spread_width,
+                "gap_safety": gap_safety,
+            })
+
+        return recommendations
+
 
 # ==============================================================================
 # SECTION 4: REAL-TIME GAMMA DANGER SENTINEL (MONITORS positions.csv)
@@ -707,6 +804,8 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_response([asdict(r) for r in self.scanner.generate_wheel_matrix(all_tickers=True)])
         elif path == "/api/leap":
             self._send_json_response([asdict(r) for r in self.scanner.generate_leap_matrix()])
+        elif path == "/api/leap-put":
+            self._send_json_response(self.scanner.generate_leap_put_matrix(all_tickers=True))
         elif path == "/api/alerts":
             self._send_json_response(self.sentinel.audit_manual_positions(emit_stderr=False))
         elif path == "/api/positions":
@@ -796,6 +895,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
                 "recommended_strategy": "Harvest Volatility Drag: Sell 0.20 Delta Cash-Secured Puts (50% profit exit) or Defined-Risk Put Credit Spreads."
             })
 
+        leap_puts = self.scanner.generate_leap_put_matrix(all_tickers=True)
         manual_positions = self.sentinel.evaluate_all_manual_positions()
         summary = {
             "timestamp": datetime.datetime.now().isoformat(),
@@ -803,11 +903,13 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "ticker_count": len(watchlist),
             "wheel_opportunities": len(wheel),
             "leap_opportunities": len(leap),
+            "leap_put_opportunities": sum(1 for p in leap_puts if p.get("is_qualified")),
             "gamma_danger_count": len(alerts),
             "manual_positions_count": len(manual_positions),
             "watchlist": watchlist,
             "wheel_recommendations": wheel,
             "leap_recommendations": leap,
+            "leap_put_recommendations": leap_puts,
             "leveraged_etfs_guidance": leveraged_etfs,
             "gamma_alerts": alerts,
             "manual_positions": manual_positions,

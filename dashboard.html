@@ -336,6 +336,77 @@
           </div>
         </div>
       </div>
+
+      <!-- BEARISH / OVERBOUGHT LEAP LONG PUT (-0.85 DELTA) & PMCP SECTION -->
+      <div class="pt-6 border-t-2 border-slate-700 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="text-xl md:text-2xl font-black text-rose-400 flex items-center space-x-2">
+              <span>📉</span>
+              <span>Bearish / Overbought LEAP Long Put (-0.85 &Delta;) &amp; PMCP Hedge</span>
+            </h3>
+            <p class="text-sm font-bold text-slate-300 mt-1">
+              When Market Rallies Too Far: <strong>14-Day RSI &gt; 65 (Overbought)</strong> + <strong>IV Rank &lt; 25% (Complacent Cheap Puts)</strong>
+            </p>
+          </div>
+          <span class="px-3 py-1.5 rounded-xl bg-rose-500 text-white font-black text-xs border-2 border-white">
+            Structure: Buy -0.85&Delta; LEAP Put (340+ DTE) + Sell -0.30&Delta; Short Put (PMCP)
+          </span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm md:text-base border-collapse">
+            <thead>
+              <tr class="border-b-2 border-slate-600 text-yellow-300 font-black uppercase">
+                <th class="py-3 px-3">Symbol</th>
+                <th class="py-3 px-3">Live Spot</th>
+                <th class="py-3 px-3">14D RSI / IVR</th>
+                <th class="py-3 px-3 text-rose-300">-0.85&Delta; LEAP Put Strike</th>
+                <th class="py-3 px-3">Live LEAP Put Contract</th>
+                <th class="py-3 px-3 text-yellow-300">LEAP Mid</th>
+                <th class="py-3 px-3 text-emerald-300">Downside Leverage</th>
+                <th class="py-3 px-3 text-cyan-300">Short PMCP (-0.30&Delta;)</th>
+                <th class="py-3 px-3 text-right">Overbought Status</th>
+              </tr>
+            </thead>
+            <tbody id="leapPutTableBody" class="divide-y-2 divide-slate-700 font-bold font-mono">
+              <tr>
+                <td class="py-3 px-3 font-sans text-xl font-black text-white">TLT</td>
+                <td class="py-3 px-3 text-yellow-300">$81.34</td>
+                <td class="py-3 px-3 text-amber-300">RSI 62.5 | IVR 100%</td>
+                <td class="py-3 px-3 text-rose-300 font-black">$95.00 Put</td>
+                <td class="py-3 px-3 text-cyan-300 text-sm">TLT270930P00095000</td>
+                <td class="py-3 px-3 text-yellow-300">$14.20</td>
+                <td class="py-3 px-3 text-emerald-300">4.87x</td>
+                <td class="py-3 px-3 text-slate-200 text-sm">$78.0 Put @ $0.32</td>
+                <td class="py-3 px-3 text-right font-sans"><span class="px-3 py-1 rounded-lg bg-slate-700 text-yellow-300 text-xs font-black">WATCH (RSI 62.5)</span></td>
+              </tr>
+              <tr>
+                <td class="py-3 px-3 font-sans text-xl font-black text-white">SPY</td>
+                <td class="py-3 px-3 text-yellow-300">$759.97</td>
+                <td class="py-3 px-3 text-slate-200">RSI 42.1 | IVR 23.7%</td>
+                <td class="py-3 px-3 text-rose-300 font-black">$875.00 Put</td>
+                <td class="py-3 px-3 text-cyan-300 text-sm">SPY271217P00875000</td>
+                <td class="py-3 px-3 text-yellow-300">$118.50</td>
+                <td class="py-3 px-3 text-emerald-300">5.45x</td>
+                <td class="py-3 px-3 text-slate-200 text-sm">$730.0 Put @ $5.70</td>
+                <td class="py-3 px-3 text-right font-sans"><span class="px-3 py-1 rounded-lg bg-slate-700 text-slate-200 text-xs font-black">CHECK / WATCHLIST</span></td>
+              </tr>
+              <tr>
+                <td class="py-3 px-3 font-sans text-xl font-black text-white">QQQ</td>
+                <td class="py-3 px-3 text-yellow-300">$704.40</td>
+                <td class="py-3 px-3 text-slate-200">RSI 36.5 | IVR 36.1%</td>
+                <td class="py-3 px-3 text-rose-300 font-black">$810.00 Put</td>
+                <td class="py-3 px-3 text-cyan-300 text-sm">QQQ271217P00810000</td>
+                <td class="py-3 px-3 text-yellow-300">$112.40</td>
+                <td class="py-3 px-3 text-emerald-300">5.33x</td>
+                <td class="py-3 px-3 text-slate-200 text-sm">$660.0 Put @ $7.76</td>
+                <td class="py-3 px-3 text-right font-sans"><span class="px-3 py-1 rounded-lg bg-slate-700 text-slate-200 text-xs font-black">CHECK / WATCHLIST</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- TAB 3: 3X TRIPLE-LEVERAGED ETFS STRATEGY GUIDE (TQQQ, SOXL, SPXL) -->
@@ -723,6 +794,33 @@
       if (data.leap_opportunities !== undefined) document.getElementById('statLeapCount').innerText = `${data.leap_opportunities} Qualified`;
       if (data.manual_positions_count !== undefined) {
         document.getElementById('statPositionsCount').innerText = `${data.manual_positions_count} Active`;
+      }
+
+      // Update LEAP Long Put Table if present
+      if (data.leap_put_recommendations && data.leap_put_recommendations.length > 0) {
+        const lpBody = document.getElementById('leapPutTableBody');
+        if (lpBody) {
+          lpBody.innerHTML = '';
+          data.leap_put_recommendations.forEach(lp => {
+            const tr = document.createElement('tr');
+            tr.className = lp.is_qualified ? 'bg-rose-950/50 border-2 border-rose-500' : 'hover:bg-slate-800/50';
+            const badge = lp.is_qualified
+              ? '<span class="px-3 py-1 rounded-lg bg-rose-500 text-white text-xs font-black">QUALIFIED PUT TRIGGER</span>'
+              : `<span class="px-3 py-1 rounded-lg bg-slate-700 text-yellow-300 text-xs font-black">WATCH (RSI ${lp.rsi.toFixed(1)})</span>`;
+            tr.innerHTML = `
+              <td class="py-3 px-3 font-sans text-xl font-black text-white">${lp.symbol}</td>
+              <td class="py-3 px-3 text-yellow-300">$${lp.spot.toFixed(2)}</td>
+              <td class="py-3 px-3 text-slate-200">RSI ${lp.rsi.toFixed(1)} | IVR ${lp.iv_rank.toFixed(1)}%</td>
+              <td class="py-3 px-3 text-rose-300 font-black">$${lp.leap_strike.toFixed(1)} Put (${lp.leap_target_dte}d)</td>
+              <td class="py-3 px-3 text-cyan-300 text-sm">${lp.leap_contract}</td>
+              <td class="py-3 px-3 text-yellow-300">$${lp.leap_mid.toFixed(2)}</td>
+              <td class="py-3 px-3 text-emerald-300">${lp.effective_leverage.toFixed(2)}x</td>
+              <td class="py-3 px-3 text-slate-200 text-sm">${lp.pmcp_contract} ($${lp.pmcp_strike.toFixed(1)} @ $${lp.pmcp_mid.toFixed(2)})</td>
+              <td class="py-3 px-3 text-right font-sans">${badge}</td>
+            `;
+            lpBody.appendChild(tr);
+          });
+        }
       }
 
       // Update 3x Leveraged ETFs Table if present

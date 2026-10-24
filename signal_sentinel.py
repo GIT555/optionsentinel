@@ -184,6 +184,8 @@ class ActionSignal(str, Enum):
     MONITOR_CSP = "MONITOR: CSP CRITERIA PENDING"
     TRIGGER_ENTER_LEAP = "TRIGGER: ENTER LEAP LONG CALL (0.85 DELTA)"
     MONITOR_LEAP = "MONITOR: LEAP CRITERIA PENDING"
+    TRIGGER_ENTER_LEAP_PUT = "TRIGGER: ENTER LEAP LONG PUT (-0.85 DELTA OVERBOUGHT HEDGE)"
+    MONITOR_LEAP_PUT = "MONITOR: LEAP PUT CRITERIA PENDING (RSI <= 65 OR IVR >= 25%)"
     REJECT_LEVERAGED_LEAP = "REJECT: LEVERAGED ETF EXCLUDED FROM LEAP"
     EXIT_GAMMA_DANGER = "EXIT: ACCELERATED GAMMA DANGER ZONE (< 14 DTE)"
     EXIT_PROFIT_TARGET = "EXIT: 50% MAX PROFIT TARGET CONTRACTED"
@@ -557,6 +559,116 @@ class SignalSentinel:
         return signals
 
     # --------------------------------------------------------------------------
+    # 2B. BEARISH / OVERBOUGHT LEAP LONG PUT ENGINE (-0.85 DELTA + PMCP)
+    # --------------------------------------------------------------------------
+    def evaluate_leap_put_guidance(self) -> List[LeapEntrySignal]:
+        """
+        Evaluates Bearish / Tail-Hedge LEAP Long Put (-0.85 Delta, 340+ DTE) with
+        Poor Man's Covered Put (PMCP, -0.30 Delta, 30-45 DTE) overlay.
+        Trigger: 14-day Daily RSI > 65 (Overbought / Extended Rally) AND IV Rank < 25% (Cheap Put Volatility).
+        Excludes 3x Leveraged ETFs (TQQQ, SOXL, SPXL).
+        """
+        signals: List[LeapEntrySignal] = []
+
+        for sym, cfg in ASSET_CONFIG.items():
+            if cfg["leveraged"]:
+                continue
+
+            snap = self.snapshots.get(sym)
+            if not snap:
+                continue
+
+            ivr = snap.iv_rank
+            rsi = snap.rsi_14
+            condition_met = (rsi > 65.0 and ivr < 25.0)
+
+            leap_contract_sym = f"{sym}-LEAP-PUT"
+            leap_strike = round(snap.spot * 1.15)
+            leap_bid, leap_ask, leap_mid = 0.0, 0.0, 0.0
+            leap_dte = 390
+
+            leaps = self.market_client.get_live_leap_options(sym, min_dte=340, option_type="PUT")
+            if leaps:
+                best_leap = min(leaps, key=lambda c: abs(c.delta_approx - (-0.85)))
+                leap_contract_sym = best_leap.contract_symbol
+                leap_strike = best_leap.strike
+                leap_bid = best_leap.bid
+                leap_ask = best_leap.ask
+                leap_mid = best_leap.mid
+                leap_dte = best_leap.dte
+
+            if leap_mid <= 0:
+                theo_price, _, _, _ = self.math.black_scholes(
+                    spot=snap.spot,
+                    strike=leap_strike,
+                    t=leap_dte / 365.0,
+                    iv=max(0.10, snap.iv_current),
+                    r=0.045,
+                    is_call=False,
+                )
+                leap_mid = round(theo_price, 2)
+                leap_bid = round(max(0.01, leap_mid * 0.96), 2)
+                leap_ask = round(leap_mid * 1.04, 2)
+
+            capital_saved = round((snap.spot * 100.0) - (leap_mid * 100.0), 2)
+
+            # PMCP short put overlay (45 DTE, -0.30 Delta)
+            pmcp_contract = f"{sym}-PMCP-0.30D"
+            pmcp_strike = round(snap.spot * 0.96)
+            pmcp_mid = round(snap.spot * 0.015, 2)
+
+            chain = self.market_client.get_live_option_chain(sym, 28, 55)
+            puts = [c for c in chain if c.option_type == "PUT"]
+            if puts:
+                best_pmcp = min(puts, key=lambda c: abs(c.delta_approx - (-0.30)))
+                pmcp_contract = best_pmcp.contract_symbol
+                pmcp_strike = best_pmcp.strike
+                pmcp_mid = best_pmcp.mid
+
+            intrinsic = max(0.0, leap_strike - snap.spot)
+            extrinsic = max(0.0, leap_mid - intrinsic)
+            eff_lev = round((0.85 * snap.spot) / leap_mid, 2) if leap_mid > 0 else 0.0
+            ann_drag = round((extrinsic / snap.spot) * (365.0 / max(1, leap_dte)) * 100.0, 2) if snap.spot > 0 else 0.0
+            spread_w = round(leap_strike - pmcp_strike, 2)
+            net_deb = round(leap_mid - pmcp_mid, 2)
+            gap_safe = "SAFE: Zero Downside Crash Risk" if spread_w >= net_deb else "MONITOR: Spread < Debit"
+
+            sig = LeapEntrySignal(
+                symbol=sym,
+                asset_name=cfg["name"],
+                spot=snap.spot,
+                current_iv=snap.iv_current,
+                iv_rank=ivr,
+                rsi_14=rsi,
+                is_leveraged=False,
+                status="QUALIFIED_PUT_ENTRY" if condition_met else "OVERBOUGHT_WATCHLIST",
+                is_triggered=condition_met,
+                rejection_rationale=None,
+                target_dte=leap_dte,
+                target_delta=-0.85,
+                live_leap_contract=leap_contract_sym,
+                live_leap_strike=leap_strike,
+                live_leap_bid=leap_bid,
+                live_leap_ask=leap_ask,
+                live_leap_mid=leap_mid,
+                capital_saved_vs_equity=capital_saved,
+                effective_leverage=eff_lev,
+                intrinsic_value=round(intrinsic, 2),
+                extrinsic_value=round(extrinsic, 2),
+                annual_drag_pct=ann_drag,
+                live_pmcc_contract=pmcp_contract,
+                live_pmcc_strike=pmcp_strike,
+                live_pmcc_mid=pmcp_mid,
+                pmcc_spread_width=spread_w,
+                pmcc_net_debit=net_deb,
+                pmcc_gap_safety=gap_safe,
+                action_directive=ActionSignal.TRIGGER_ENTER_LEAP_PUT if condition_met else ActionSignal.MONITOR_LEAP_PUT,
+            )
+            signals.append(sig)
+
+        return signals
+
+    # --------------------------------------------------------------------------
     # 3. MANUAL POSITION MONITOR & DYNAMIC EXIT ENGINE
     # --------------------------------------------------------------------------
     def evaluate_manual_positions(self) -> List[PositionExitSignal]:
@@ -729,8 +841,23 @@ def display_full_guidance(engine: SignalSentinel, show_all_wheel: bool = False):
             print(f"\n\033[97;1m[{l.symbol}]\033[0m STATUS: \033[93;1m{l.status} (MONITOR - IVR {l.iv_rank:.1f}%, RSI {l.rsi_14:.1f})\033[0m")
             print(f"  -> Live LEAP Reference: {l.live_leap_contract} (Strike ${l.live_leap_strike:.1f} | Mid: ${l.live_leap_mid:.2f})")
 
-    # 3B. Triple-Leveraged Equities Strategy Engine (TQQQ, SOXL, SPXL)
-    print("\n--- 3B. TRIPLE-LEVERAGED EQUITIES STRATEGY ENGINE: TQQQ, SOXL, SPXL ---")
+    # 3B. Bearish / Overbought LEAP Long Put (-0.85 Delta) & PMCP Diagonals
+    print("\n--- 3B. BEARISH / OVERBOUGHT LEAP LONG PUT (-0.85 DELTA) & PMCP DIAGONALS ---")
+    print("  Trigger Rule: 14-Day RSI > 65 (Overbought Rally) AND IV Rank < 25% (Complacent Cheap Put Volatility).")
+    print("  Overlay: Poor Man's Covered Put (PMCP) -> Sell 30-45 DTE -0.30 Delta Put to finance time decay.")
+    print(f"\n{'SYM':<6} {'SPOT':<9} {'RSI14':<7} {'IVR':<7} {'-0.85D LEAP PUT':<22} {'STRIKE':<9} {'MID':<9} {'LEV':<6} {'PMCP SHORT PUT':<22} {'STATUS'}")
+    print("-" * 116)
+    leap_put_signals = engine.evaluate_leap_put_guidance()
+    for lp in leap_put_signals:
+        st_str = "\033[92;1m[QUALIFIED PUT]\033[0m" if lp.is_triggered else "\033[93;1m[CHECK / WATCH]\033[0m"
+        print(
+            f"\033[97;1m{lp.symbol:<6}\033[0m ${lp.spot:<8.2f} {lp.rsi_14:>5.1f}  {lp.iv_rank:>5.1f}%  "
+            f"\033[96;1m{lp.live_leap_contract:<22}\033[0m ${lp.live_leap_strike:<8.1f} \033[93;1m${lp.live_leap_mid:<8.2f}\033[0m "
+            f"{lp.effective_leverage:>4.2f}x  {lp.live_pmcc_contract:<22} {st_str}"
+        )
+
+    # 3C. Triple-Leveraged Equities Strategy Engine (TQQQ, SOXL, SPXL)
+    print("\n--- 3C. TRIPLE-LEVERAGED EQUITIES STRATEGY ENGINE: TQQQ, SOXL, SPXL ---")
     print("  Mathematical Rule: NEVER buy long LEAP calls on 3x ETFs (variance drag causes massive beta-slippage).")
     print("  Institutional Strategy: Harvest extreme implied volatility by selling 0.20 Delta Cash-Secured Puts (CSP)!")
     print(f"\n{'SYM':<6} {'SPOT':<8} {'IV':<7} {'1-SD MOVE':<10} {'0.20D STRIKE':<13} {'BUFFER':<8} {'LIVE CONTRACT':<22} {'MID':<7} {'ROC (EST)'}")
@@ -795,6 +922,7 @@ def main():
             "telemetry": {k: asdict(v) for k, v in engine.snapshots.items()},
             "wheel_signals": [asdict(w) for w in engine.evaluate_wheel_premium_guidance(all_tickers=args.all)],
             "leap_signals": [asdict(l) for l in engine.evaluate_leap_leverage_guidance()],
+            "leap_put_signals": [asdict(lp) for lp in engine.evaluate_leap_put_guidance()],
             "manual_positions": [asdict(e) for e in engine.evaluate_manual_positions()],
         }
         print(json.dumps(payload, indent=2))

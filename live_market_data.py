@@ -270,14 +270,17 @@ class LiveMarketClient:
 
         return contracts
 
-    def get_live_leap_options(self, symbol: str, min_dte: int = 340) -> List[LiveOptionContract]:
-        cache_key = f"{symbol}_LEAP_{min_dte}"
+    def get_live_leap_options(
+        self, symbol: str, min_dte: int = 340, option_type: str = "CALL"
+    ) -> List[LiveOptionContract]:
+        cache_key = f"{symbol}_LEAP_ALL_{min_dte}"
         now = time.time()
+        opt_filter = option_type.upper()
 
         if cache_key in self._cache_chains:
             t_cached, data = self._cache_chains[cache_key]
             if (now - t_cached) < self.cache_ttl:
-                return data
+                return [c for c in data if c.option_type == opt_filter]
 
         yahoo_sym = TICKER_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
         session = self._get_session()
@@ -328,13 +331,17 @@ class LiveMarketClient:
                     c = self._parse_contract(raw_call, spot, dte, exp_str, "CALL")
                     if c:
                         contracts.append(c)
+                for raw_put in options_list.get("puts", []):
+                    c = self._parse_contract(raw_put, spot, dte, exp_str, "PUT")
+                    if c:
+                        contracts.append(c)
 
             self._cache_chains[cache_key] = (now, contracts)
 
         except Exception:
             pass
 
-        return contracts
+        return [c for c in contracts if c.option_type == opt_filter]
 
     def _parse_contract(
         self, raw: Dict[str, Any], spot: float, dte: int, exp_str: str, opt_type: str
