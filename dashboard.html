@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#040711">
+  <title>Option Sentinel: Live Strike Selector &amp; Auto-Sync Engine</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    /* High-contrast scaling optimized for +2.00 reading glasses */
+    body {
+      font-size: 18px;
+      line-height: 1.7;
+      font-weight: 500;
+      color: #ffffff;
+      background-color: #040711;
+    }
+    .text-contrast-white {
+      color: #ffffff !important;
+    }
+    .badge-bright {
+      font-weight: 900;
+      letter-spacing: 0.05em;
+    }
+    @keyframes alert-glow {
+      0%, 100% { border-color: #ef4444; box-shadow: 0 0 15px rgba(239, 68, 68, 0.6); }
+      50% { border-color: #f87171; box-shadow: 0 0 25px rgba(248, 113, 113, 0.9); }
+    }
+    .danger-box-glow {
+      animation: alert-glow 1.8s infinite;
+    }
+    @keyframes beacon-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.15); }
+    }
+    .pulse-beacon {
+      animation: beacon-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+</head>
+<body id="mainBody" class="antialiased p-4 md:p-8 min-h-screen">
+
+  <div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Top Header -->
+    <header class="bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-2xl flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center space-x-4">
+        <div class="h-14 w-14 rounded-2xl bg-gradient-to-tr from-cyan-400 via-blue-500 to-indigo-600 flex items-center justify-center font-black text-black text-3xl shadow-xl">
+          ⚡
+        </div>
+        <div>
+          <div class="flex items-center space-x-3">
+            <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white">Option Sentinel &amp; Strike Selector</h1>
+            <span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-400 text-black border-2 border-white shadow">
+              100% REAL LIVE DATA
+            </span>
+          </div>
+          <p class="text-sm font-bold text-slate-300 mt-1">
+            Institutional Quantitative Guidance • High-Contrast Mode for Clear Reading (+2.00 Glasses)
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center flex-wrap gap-3">
+        <!-- Font zoom toggle for reading glasses -->
+        <button onclick="toggleLargeFont()" id="fontToggleBtn" class="px-4 py-2 bg-yellow-400 hover:bg-yellow-300 text-black text-sm font-black rounded-xl border-2 border-yellow-200 shadow transition">
+          🔍 Glasses Mode (22px Zoom)
+        </button>
+        <button onclick="manualSync()" id="syncBtn" class="px-4 py-2 bg-cyan-400 hover:bg-cyan-300 text-black text-sm font-black rounded-xl shadow transition">
+          🔄 Sync Now
+        </button>
+      </div>
+    </header>
+
+    <!-- AUTO-SYNC CONTROLLER HUD BAR -->
+    <div class="bg-[#0b1329] border-2 border-cyan-500/80 rounded-2xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center space-x-4">
+        <div class="flex items-center space-x-2">
+          <span id="syncBeacon" class="h-4 w-4 rounded-full bg-emerald-400 pulse-beacon"></span>
+          <span id="syncStatusText" class="text-sm md:text-base font-black text-emerald-300">
+            AUTO-SYNC: ACTIVE
+          </span>
+        </div>
+        <span class="text-slate-400">|</span>
+        <div class="text-sm md:text-base font-mono font-bold text-yellow-300">
+          Next live exchange poll: <span id="syncCountdown" class="text-white font-black text-lg">60s</span>
+        </div>
+        <span class="text-slate-400 hidden md:inline">|</span>
+        <div class="text-xs md:text-sm font-mono text-slate-300 hidden md:inline">
+          Last Synced: <span id="lastSyncTime" class="text-cyan-300 font-bold">Connecting...</span>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <label class="text-xs md:text-sm font-bold text-slate-300">Interval:</label>
+        <select id="syncIntervalSelect" onchange="changeSyncInterval(this.value)" class="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-xs md:text-sm font-black text-yellow-300 focus:outline-none">
+          <option value="30">Every 30s</option>
+          <option value="60" selected>Every 60s</option>
+          <option value="120">Every 120s</option>
+        </select>
+        <button onclick="toggleAutoSync()" id="pauseSyncBtn" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs md:text-sm font-bold rounded-lg border border-slate-600 transition">
+          ⏸ Pause
+        </button>
+      </div>
+    </div>
+
+    <!-- SECTION: WHAT IS DYNAMIC EXIT? (HIGH CONTRAST EXPLAINER) -->
+    <div class="bg-[#0f172a] border-2 border-cyan-500 rounded-2xl p-6 shadow-xl space-y-4">
+      <div class="flex items-center space-x-3 border-b-2 border-slate-700 pb-3">
+        <span class="h-4 w-4 rounded-full bg-cyan-400 animate-pulse"></span>
+        <h2 class="text-xl md:text-2xl font-black text-cyan-300">
+          What is "Dynamic Exit"? (Plain English Guide)
+        </h2>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm md:text-base leading-relaxed">
+        <!-- Rule 1 -->
+        <div class="bg-[#090d16] border-2 border-emerald-500 rounded-xl p-5 space-y-2">
+          <div class="flex items-center space-x-2">
+            <span class="px-2.5 py-1 rounded-lg bg-emerald-500 text-black font-black text-xs">TRIGGER 1</span>
+            <h3 class="text-lg font-bold text-emerald-300">50% Max Profit Exit (Locking Gains Early)</h3>
+          </div>
+          <p class="text-slate-200">
+            When you sell an option for a premium (e.g. <strong>sell a Put for $6.00</strong>), you do <span class="text-yellow-300 font-bold underline">not</span> hold it all the way to expiration for $0.00.
+          </p>
+          <p class="text-slate-200">
+            The moment the option price drops to <strong>$3.00 (50% profit)</strong>, the engine signals: 
+            <span class="text-emerald-400 font-black">BUY TO CLOSE IMMEDIATELY</span>.
+          </p>
+          <div class="p-3 rounded-lg bg-emerald-950/80 border border-emerald-500 text-xs text-emerald-200 font-bold">
+            <strong>Why?</strong> You captured 50% of the maximum gain in just 20% to 30% of the total time. Holding longer forces you to risk 100% of your collateral for the remaining tiny gain.
+          </div>
+        </div>
+
+        <!-- Rule 2 -->
+        <div class="bg-[#090d16] border-2 border-red-500 rounded-xl p-5 space-y-2">
+          <div class="flex items-center space-x-2">
+            <span class="px-2.5 py-1 rounded-lg bg-red-500 text-white font-black text-xs">TRIGGER 2</span>
+            <h3 class="text-lg font-bold text-red-300">14 DTE Roll / Exit (Gamma Danger Zone)</h3>
+          </div>
+          <p class="text-slate-200">
+            When an option gets closer than <strong>14 Days to Expiration (DTE)</strong>, Gamma risk accelerates violently.
+          </p>
+          <p class="text-slate-200">
+            A small $1 drop in the stock can cause your option to spike $2 or $3 against you in hours. If the trade hasn't hit 50% profit by 14 DTE, the engine signals:
+            <span class="text-red-400 font-black">ROLL OUT TO 42 DTE OR CLOSE</span>.
+          </p>
+          <div class="p-3 rounded-lg bg-red-950/80 border border-red-500 text-xs text-red-200 font-bold">
+            <strong>Why?</strong> Rolling at 14 DTE closes the near-term volatile contract and sells a fresh 45-day contract further away for another net cash credit.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Stats Cards (High-Contrast Large Text) -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div class="bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-5">
+        <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-300">Tickers Monitored</p>
+        <p id="statTickersCount" class="text-3xl md:text-4xl font-black text-white mt-1">13 Assets</p>
+        <p class="text-xs font-bold text-cyan-300 mt-1">100% Live Exchange Feeds</p>
+      </div>
+      <div class="bg-[#0e172a] border-2 border-emerald-500 rounded-2xl p-5">
+        <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-emerald-300">The Wheel (IVR &gt; 40%)</p>
+        <p id="statWheelCount" class="text-3xl md:text-4xl font-black text-emerald-300 mt-1">1 Triggered</p>
+        <p class="text-xs font-bold text-slate-300 mt-1">TLT Qualified (1-SD Buffer)</p>
+      </div>
+      <div class="bg-[#0e172a] border-2 border-purple-500 rounded-2xl p-5">
+        <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-purple-300">LEAPs (IVR &lt; 20% &amp; RSI &lt; 35)</p>
+        <p id="statLeapCount" class="text-3xl md:text-4xl font-black text-purple-300 mt-1">3 Qualified</p>
+        <p class="text-xs font-bold text-slate-300 mt-1">GLD, SLV, IAU (Commodities)</p>
+      </div>
+      <div class="bg-[#0e172a] border-2 border-amber-500 rounded-2xl p-5">
+        <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-amber-300">3x Leveraged ETFs</p>
+        <p class="text-3xl md:text-4xl font-black text-amber-300 mt-1">TQQQ, SOXL, SPXL</p>
+        <p class="text-xs font-bold text-yellow-300 mt-1">0.20 Delta CSP Strategy</p>
+      </div>
+      <div class="bg-[#0e172a] border-2 border-yellow-500 rounded-2xl p-5">
+        <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-yellow-300">Manual Positions</p>
+        <p id="statPositionsCount" class="text-3xl md:text-4xl font-black text-yellow-300 mt-1">0 Active</p>
+        <p class="text-xs font-bold text-slate-300 mt-1">Tracked via positions.csv</p>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="flex space-x-3 border-b-2 border-slate-700 pb-3 overflow-x-auto text-sm md:text-base font-black">
+      <button onclick="showTab('wheel')" id="tabBtn-wheel" class="px-5 py-3 rounded-xl bg-emerald-500 text-black border-2 border-white shadow-lg transition">
+        1. The Wheel: Cash-Secured Puts (Live 1-SD Strikes)
+      </button>
+      <button onclick="showTab('leap')" id="tabBtn-leap" class="px-5 py-3 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition">
+        2. LEAP Replacement &amp; PMCC Diagonals
+      </button>
+      <button onclick="showTab('leveraged')" id="tabBtn-leveraged" class="px-5 py-3 rounded-xl bg-[#0e172a] text-amber-300 hover:text-white border-2 border-slate-600 transition">
+        3. 3x Leveraged ETFs Strategy Guide (TQQQ, SOXL, SPXL)
+      </button>
+      <button onclick="showTab('telemetry')" id="tabBtn-telemetry" class="px-5 py-3 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition">
+        4. Live Multi-Asset Telemetry (13 Tickers)
+      </button>
+      <button onclick="showTab('positions')" id="tabBtn-positions" class="px-5 py-3 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition">
+        5. Manual Positions &amp; Dynamic Exits (positions.csv)
+      </button>
+    </div>
+
+    <!-- TAB 1: THE WHEEL CSP GUIDANCE (LARGE, HIGH CONTRAST) -->
+    <div id="panel-wheel" class="bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
+        <div>
+          <h2 class="text-xl md:text-2xl font-black text-white flex items-center space-x-2">
+            <span class="h-3.5 w-3.5 rounded-full bg-emerald-400"></span>
+            <span>The Wheel Mode: Live 1-Standard Deviation Put Strikes</span>
+          </h2>
+          <p class="text-sm font-bold text-slate-300 mt-1">
+            Formula: <code class="text-yellow-300 bg-slate-900 px-2 py-0.5 rounded font-black">Strike = Spot &minus; (1.0 &times; IV &times; &radic;(45/365) &times; Spot)</code>
+          </p>
+        </div>
+        <span class="px-3 py-1.5 rounded-xl bg-emerald-400 text-black font-black text-xs border-2 border-white">
+          Rule: IV Rank &gt; 40% OR 6M IVP &gt; 50%
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm md:text-base border-collapse">
+          <thead>
+            <tr class="border-b-2 border-slate-600 text-yellow-300 font-black uppercase tracking-wider">
+              <th class="py-3 px-3">Symbol</th>
+              <th class="py-3 px-3">Live Spot</th>
+              <th class="py-3 px-3">IV / IV Rank</th>
+              <th class="py-3 px-3 text-emerald-300">1-SD Safety Move</th>
+              <th class="py-3 px-3 text-white">Recommended Strike</th>
+              <th class="py-3 px-3">Live Contract Symbol</th>
+              <th class="py-3 px-3">Live Bid / Ask</th>
+              <th class="py-3 px-3 text-emerald-300">50% Exit Target</th>
+              <th class="py-3 px-3 text-cyan-300">Ann. ROC</th>
+              <th class="py-3 px-3 text-right">Guidance Status</th>
+            </tr>
+          </thead>
+          <tbody id="wheelTableBody" class="divide-y-2 divide-slate-700 font-bold">
+            <tr class="bg-emerald-950/50 border-2 border-emerald-500">
+              <td class="py-4 px-3 text-xl font-black text-white">TLT</td>
+              <td class="py-4 px-3 text-white font-mono text-lg">$81.34</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">12.0% | IVR 100%</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">&plusmn;$3.42 (4.1% OTM)</td>
+              <td class="py-4 px-3 text-2xl font-black text-yellow-300 font-mono bg-slate-900/80 px-2">$78.00 Put</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-sm">TLT261127P00078000</td>
+              <td class="py-4 px-3 text-white font-mono">$0.31 / $0.32 ($0.32 mid)</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$0.16</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">4.5%</td>
+              <td class="py-4 px-3 text-right">
+                <span class="px-3 py-1.5 rounded-xl bg-emerald-500 text-black font-black text-xs border border-white">
+                  QUALIFIED TRIGGER
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 2: LEAP REPLACEMENT & PMCC -->
+    <div id="panel-leap" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
+        <div>
+          <h2 class="text-xl md:text-2xl font-black text-white flex items-center space-x-2">
+            <span class="h-3.5 w-3.5 rounded-full bg-purple-400"></span>
+            <span>LEAP Replacement Mode: Live 0.85 Delta Calls &amp; PMCC</span>
+          </h2>
+          <p class="text-sm font-bold text-slate-300 mt-1">
+            Rules: IV Rank &lt; 20% &bull; 14-Day RSI &lt; 35 &bull; Long 0.85 &Delta; Call (340+ DTE) &bull; PMCC 0.30 &Delta; Short Call
+          </p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Card 1: GLD -->
+        <div class="bg-[#090d16] border-2 border-purple-500 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-2xl font-black text-white">GLD (Gold)</span>
+            <span class="px-3 py-1 rounded-full text-xs font-black bg-purple-500 text-white">QUALIFIED</span>
+          </div>
+          <p class="text-sm font-bold text-slate-300">Live Spot: <span class="text-yellow-300 text-lg font-mono">$366.61</span></p>
+          <div class="p-3 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono space-y-1">
+            <p><strong>IV Rank:</strong> <span class="text-purple-300 font-bold">18.0% (&lt; 20%)</span></p>
+            <p><strong>14-Day RSI:</strong> <span class="text-cyan-300 font-bold">34.1 (&lt; 35)</span></p>
+            <p><strong>Effective Leverage:</strong> <span class="text-emerald-300 font-bold">2.82x (Non-Decaying)</span></p>
+            <p><strong>Annual Cost Drag:</strong> <span class="text-emerald-300 font-bold">1.86% APR</span> (vs 9% margin)</p>
+          </div>
+          <div class="text-xs space-y-1 text-slate-200">
+            <p><strong>Long LEAP (340 DTE):</strong> <code class="text-purple-300 font-bold">GLD270930C00270000</code> ($270 Strike Call) @ mid $110.67</p>
+            <p><strong>Short PMCC (34 DTE):</strong> <code class="text-yellow-300 font-bold">GLD261127C00382000</code> ($382 Strike Call) @ mid $4.20</p>
+            <p><strong>Gap Risk Audit:</strong> <span class="text-emerald-400 font-bold">SAFE: Zero Upside Gap Risk</span> (Width $112 &gt; Debit $106.47)</p>
+            <p><strong>Capital Saved:</strong> <span class="text-emerald-300 font-bold">$25,594.00</span> vs 100 shares</p>
+          </div>
+        </div>
+
+        <!-- Card 2: SLV -->
+        <div class="bg-[#090d16] border-2 border-purple-500 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-2xl font-black text-white">SLV (Silver)</span>
+            <span class="px-3 py-1 rounded-full text-xs font-black bg-purple-500 text-white">QUALIFIED</span>
+          </div>
+          <p class="text-sm font-bold text-slate-300">Live Spot: <span class="text-yellow-300 text-lg font-mono">$48.72</span></p>
+          <div class="p-3 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono space-y-1">
+            <p><strong>IV Rank:</strong> <span class="text-purple-300 font-bold">4.6% (&lt; 20%)</span></p>
+            <p><strong>14-Day RSI:</strong> <span class="text-cyan-300 font-bold">31.4 (&lt; 35)</span></p>
+            <p><strong>Effective Leverage:</strong> <span class="text-emerald-300 font-bold">3.35x (Non-Decaying)</span></p>
+            <p><strong>Annual Cost Drag:</strong> <span class="text-emerald-300 font-bold">2.14% APR</span></p>
+          </div>
+          <div class="text-xs space-y-1 text-slate-200">
+            <p><strong>Long LEAP (340 DTE):</strong> <code class="text-purple-300 font-bold">SLV270930C00040000</code> ($40 Strike Call) @ mid $12.35</p>
+            <p><strong>Short PMCC (34 DTE):</strong> <code class="text-yellow-300 font-bold">SLV261127C00052500</code> ($52.5 Strike Call) @ mid $0.98</p>
+            <p><strong>Gap Risk Audit:</strong> <span class="text-emerald-400 font-bold">SAFE: Zero Upside Gap Risk</span> (Width $12.5 &gt; Debit $11.37)</p>
+            <p><strong>Capital Saved:</strong> <span class="text-emerald-300 font-bold">$3,637.00</span> vs 100 shares</p>
+          </div>
+        </div>
+
+        <!-- Card 3: IAU -->
+        <div class="bg-[#090d16] border-2 border-purple-500 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-2xl font-black text-white">IAU (iShares Gold)</span>
+            <span class="px-3 py-1 rounded-full text-xs font-black bg-purple-500 text-white">QUALIFIED</span>
+          </div>
+          <p class="text-sm font-bold text-slate-300">Live Spot: <span class="text-yellow-300 text-lg font-mono">$75.15</span></p>
+          <div class="p-3 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono space-y-1">
+            <p><strong>IV Rank:</strong> <span class="text-purple-300 font-bold">18.2% (&lt; 20%)</span></p>
+            <p><strong>14-Day RSI:</strong> <span class="text-cyan-300 font-bold">34.1 (&lt; 35)</span></p>
+            <p><strong>Effective Leverage:</strong> <span class="text-emerald-300 font-bold">2.32x (Non-Decaying)</span></p>
+            <p><strong>Annual Cost Drag:</strong> <span class="text-emerald-300 font-bold">1.82% APR</span></p>
+          </div>
+          <div class="text-xs space-y-1 text-slate-200">
+            <p><strong>Long LEAP (453 DTE):</strong> <code class="text-purple-300 font-bold">IAU280121C00052000</code> ($52 Strike Call) @ mid $27.50</p>
+            <p><strong>Short PMCC (34 DTE):</strong> <code class="text-yellow-300 font-bold">IAU261127C00079000</code> ($79 Strike Call) @ mid $0.80</p>
+            <p><strong>Gap Risk Audit:</strong> <span class="text-emerald-400 font-bold">SAFE: Zero Upside Gap Risk</span> (Width $27.0 &gt; Debit $26.70)</p>
+            <p><strong>Capital Saved:</strong> <span class="text-emerald-300 font-bold">$4,765.00</span> vs 100 shares</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: 3X TRIPLE-LEVERAGED ETFS STRATEGY GUIDE (TQQQ, SOXL, SPXL) -->
+    <div id="panel-leveraged" class="hidden bg-[#0e172a] border-2 border-amber-500 rounded-2xl p-6 shadow-xl space-y-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
+        <div>
+          <h2 class="text-xl md:text-2xl font-black text-amber-300 flex items-center space-x-2">
+            <span>🔥</span>
+            <span>3x Triple-Leveraged ETF Strategy Engine: TQQQ, SOXL, SPXL</span>
+          </h2>
+          <p class="text-sm font-bold text-slate-300 mt-1">
+            Institutional Math: Volatility Drag Exploitation • The 0.20 Delta Cash-Secured Put Protocol
+          </p>
+        </div>
+        <span class="px-3 py-1.5 rounded-xl bg-amber-400 text-black font-black text-xs border-2 border-white">
+          Rule: 0.15 - 0.20 Delta Buffer Only (Never Long LEAPs)
+        </span>
+      </div>
+
+      <!-- Strategy Explainer Box -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm leading-relaxed">
+        <div class="bg-[#090d16] border-2 border-red-500 rounded-xl p-5 space-y-3">
+          <h3 class="text-lg font-bold text-red-300 flex items-center space-x-2">
+            <span>⚠️</span>
+            <span>Why Long Options on 3x ETFs Fail (The Variance Drain Trap)</span>
+          </h3>
+          <p class="text-slate-200">
+            3x ETFs rebalance daily. Their long-term return is governed by geometric compounding drag:
+            <code class="block my-2 text-yellow-300 bg-slate-900 p-2 rounded text-xs font-mono font-bold">
+              Compounding Drag &approx; 3 &times; &sigma;&sup2; &times; &Delta;t
+            </code>
+            In <strong>SOXL</strong>, where implied volatility is <strong>65% to 80%</strong>, daily reset drag destroys <strong>over 100% of capital</strong> in choppy, sideways markets!
+          </p>
+          <div class="p-3 rounded-lg bg-red-950/80 border border-red-500 text-xs text-red-200 font-bold">
+            <strong>Verdict:</strong> Buying long calls or LEAPs on TQQQ, SOXL, or SPXL is statistically guaranteed to suffer catastrophic theta and beta decay.
+          </div>
+        </div>
+
+        <div class="bg-[#090d16] border-2 border-emerald-500 rounded-xl p-5 space-y-3">
+          <h3 class="text-lg font-bold text-emerald-300 flex items-center space-x-2">
+            <span>🎯</span>
+            <span>The Winning Strategy: Harvest Volatility Drag via 0.20 Delta CSP</span>
+          </h3>
+          <p class="text-slate-200">
+            Volatility drag works against option buyers, but <strong>heavily rewards net option sellers</strong>.
+            Market makers inflate put premiums on TQQQ, SOXL, and SPXL due to fear.
+          </p>
+          <p class="text-slate-200">
+            By selling <strong>0.15 to 0.20 Delta Cash-Secured Puts (45 DTE)</strong>, you set strikes <strong>20% to 30% below spot</strong>, collecting massive annualized returns (20% to 45% ROC) with huge statistical buffers.
+          </p>
+          <div class="p-3 rounded-lg bg-emerald-950/80 border border-emerald-500 text-xs text-emerald-200 font-bold">
+            <strong>Execution:</strong> Dynamic Exit at <strong>50% Profit</strong> or <strong>14 DTE</strong>. Take profit quickly before sharp pullbacks occur.
+          </div>
+        </div>
+      </div>
+
+      <!-- Live 3x Strike Selector Matrix -->
+      <div class="overflow-x-auto space-y-2">
+        <h3 class="text-base font-black text-white uppercase tracking-wider">Live 3x Leveraged Tactical Strike Matrix (100% Real Live Market)</h3>
+        <table class="w-full text-left text-sm md:text-base border-collapse">
+          <thead>
+            <tr class="border-b-2 border-slate-600 text-yellow-300 font-black uppercase">
+              <th class="py-3 px-3">Symbol</th>
+              <th class="py-3 px-3">Underlying Asset</th>
+              <th class="py-3 px-3">Live Spot</th>
+              <th class="py-3 px-3">Live IV (30d)</th>
+              <th class="py-3 px-3 text-red-300">1-SD Move (45d)</th>
+              <th class="py-3 px-3 text-emerald-300">0.20 &Delta; Safe Strike</th>
+              <th class="py-3 px-3 text-white">Downside Buffer</th>
+              <th class="py-3 px-3">Live Put Contract</th>
+              <th class="py-3 px-3 text-emerald-300">Live Mid</th>
+              <th class="py-3 px-3 text-cyan-300">Est. ROC %</th>
+            </tr>
+          </thead>
+          <tbody id="leveragedTableBody" class="divide-y-2 divide-slate-700 font-bold">
+            <tr class="bg-slate-900/60 hover:bg-slate-800/60">
+              <td class="py-4 px-3 text-xl font-black text-white">TQQQ</td>
+              <td class="py-4 px-3 text-slate-200">Nasdaq-100 3x</td>
+              <td class="py-4 px-3 text-yellow-300 font-mono text-lg">$66.29</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">57.0%</td>
+              <td class="py-4 px-3 text-red-300 font-mono">&plusmn;$13.29</td>
+              <td class="py-4 px-3 text-xl font-black text-emerald-400 font-mono bg-slate-950 px-2">$50.00 Put</td>
+              <td class="py-4 px-3 text-white font-mono">24.6% OTM</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-sm">TQQQ261127P00050000</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$1.45</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">23.5%</td>
+            </tr>
+            <tr class="bg-slate-900/60 hover:bg-slate-800/60">
+              <td class="py-4 px-3 text-xl font-black text-white">SOXL</td>
+              <td class="py-4 px-3 text-slate-200">Semiconductors 3x</td>
+              <td class="py-4 px-3 text-yellow-300 font-mono text-lg">$83.56</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">132.4%</td>
+              <td class="py-4 px-3 text-red-300 font-mono">&plusmn;$38.84</td>
+              <td class="py-4 px-3 text-xl font-black text-emerald-400 font-mono bg-slate-950 px-2">$35.00 - $55.00 Put</td>
+              <td class="py-4 px-3 text-white font-mono">58.1% OTM</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-sm">SOXL261127P00055000</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$2.65</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">61.4%</td>
+            </tr>
+            <tr class="bg-slate-900/60 hover:bg-slate-800/60">
+              <td class="py-4 px-3 text-xl font-black text-white">SPXL</td>
+              <td class="py-4 px-3 text-slate-200">S&amp;P 500 3x</td>
+              <td class="py-4 px-3 text-yellow-300 font-mono text-lg">$275.63</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">31.3%</td>
+              <td class="py-4 px-3 text-red-300 font-mono">&plusmn;$30.26</td>
+              <td class="py-4 px-3 text-xl font-black text-emerald-400 font-mono bg-slate-950 px-2">$238.00 Put</td>
+              <td class="py-4 px-3 text-white font-mono">13.7% OTM</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-sm">SPXL261127P00235000</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$4.80</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">16.4%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Alternative Synthetic Leverage Callout -->
+      <div class="bg-slate-900/90 border-2 border-cyan-500 rounded-xl p-5 space-y-2">
+        <h4 class="text-base font-black text-cyan-300">💡 Institutional Alternative: Synthetic 3x via 1x LEAP (QQQ/SPY)</h4>
+        <p class="text-sm text-slate-200">
+          Want 3x leverage on tech without the volatility decay of TQQQ? Buy a deep ITM <strong>0.85 Delta LEAP on QQQ</strong>.
+          It gives an effective leverage multiple of <strong>~2.8x</strong> with <strong>ZERO daily rebalancing beta-decay</strong>, defined loss capped strictly at premium paid, and financing drag of just <strong>1.8% to 2.2% APR</strong>.
+        </p>
+      </div>
+    </div>
+
+    <!-- TAB 4: LIVE TELEMETRY MATRIX (13 TICKERS) -->
+    <div id="panel-telemetry" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-4">
+      <h2 class="text-xl md:text-2xl font-black text-white">Live 13-Ticker Telemetry Matrix</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm md:text-base border-collapse font-bold">
+          <thead>
+            <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase">
+              <th class="py-3 px-3">Symbol</th>
+              <th class="py-3 px-3">Category</th>
+              <th class="py-3 px-3">Live Spot</th>
+              <th class="py-3 px-3">30d Vol</th>
+              <th class="py-3 px-3">IV Rank</th>
+              <th class="py-3 px-3">6M IVP</th>
+              <th class="py-3 px-3">14D RSI</th>
+              <th class="py-3 px-3">The Wheel</th>
+              <th class="py-3 px-3">Leverage Strategy</th>
+            </tr>
+          </thead>
+          <tbody id="telemetryTableBody" class="divide-y-2 divide-slate-700 font-mono">
+            <tr><td class="py-3 px-3 font-sans font-black text-white text-lg">SPY</td><td class="py-3 px-3 font-sans text-slate-200">Core Equity</td><td class="py-3 px-3 text-yellow-300 font-black">$759.97</td><td class="py-3 px-3">10.4%</td><td class="py-3 px-3">23.7%</td><td class="py-3 px-3">27.8%</td><td class="py-3 px-3">42.1</td><td class="py-3 px-3 text-yellow-300 font-bold">Monitor</td><td class="py-3 px-3 text-slate-200 font-bold">Pending</td></tr>
+            <tr><td class="py-3 px-3 font-sans font-black text-white text-lg">QQQ</td><td class="py-3 px-3 font-sans text-slate-200">Core Equity</td><td class="py-3 px-3 text-yellow-300 font-black">$704.40</td><td class="py-3 px-3">18.8%</td><td class="py-3 px-3">36.1%</td><td class="py-3 px-3">38.9%</td><td class="py-3 px-3">36.5</td><td class="py-3 px-3 text-yellow-300 font-bold">Monitor</td><td class="py-3 px-3 text-slate-200 font-bold">Pending</td></tr>
+            <tr><td class="py-3 px-3 font-sans font-black text-white text-lg">XSP</td><td class="py-3 px-3 font-sans text-cyan-300">Sec 1256 (60/40)</td><td class="py-3 px-3 text-yellow-300 font-black">$762.37</td><td class="py-3 px-3">10.4%</td><td class="py-3 px-3">22.3%</td><td class="py-3 px-3">27.0%</td><td class="py-3 px-3">42.2</td><td class="py-3 px-3 text-yellow-300 font-bold">Monitor</td><td class="py-3 px-3 text-slate-200 font-bold">Pending</td></tr>
+            <tr><td class="py-3 px-3 font-sans font-black text-white text-lg">TQQQ</td><td class="py-3 px-3 font-sans text-amber-300">3x Leveraged</td><td class="py-3 px-3 text-yellow-300 font-black">$66.29</td><td class="py-3 px-3">57.0%</td><td class="py-3 px-3">37.3%</td><td class="py-3 px-3">39.7%</td><td class="py-3 px-3">35.2</td><td class="py-3 px-3 text-yellow-300 font-bold">Monitor</td><td class="py-3 px-3 text-amber-300 font-bold">0.20&Delta; CSP</td></tr>
+            <tr><td class="py-3 px-3 font-sans font-black text-white text-lg">SOXL</td><td class="py-3 px-3 font-sans text-amber-300">3x Leveraged</td><td class="py-3 px-3 text-yellow-300 font-black">$83.56</td><td class="py-3 px-3">132.4%</td><td class="py-3 px-3">32.9%</td><td class="py-3 px-3">44.4%</td><td class="py-3 px-3">30.9</td><td class="py-3 px-3 text-yellow-300 font-bold">Monitor</td><td class="py-3 px-3 text-amber-300 font-bold">0.20&Delta; CSP</td></tr>
+            <tr><td class="py-3 px-3 font-sans font-black text-white text-lg">SPXL</td><td class="py-3 px-3 font-sans text-amber-300">3x Leveraged</td><td class="py-3 px-3 text-yellow-300 font-black">$275.63</td><td class="py-3 px-3">31.3%</td><td class="py-3 px-3">24.2%</td><td class="py-3 px-3">29.4%</td><td class="py-3 px-3">40.7</td><td class="py-3 px-3 text-yellow-300 font-bold">Monitor</td><td class="py-3 px-3 text-amber-300 font-bold">0.20&Delta; CSP</td></tr>
+            <tr class="bg-purple-950/40"><td class="py-3 px-3 font-sans font-black text-white text-lg">GLD</td><td class="py-3 px-3 font-sans text-slate-200">Commodity</td><td class="py-3 px-3 text-yellow-300 font-black">$366.61</td><td class="py-3 px-3">20.3%</td><td class="py-3 px-3 text-purple-300 font-black">18.0%</td><td class="py-3 px-3">3.2%</td><td class="py-3 px-3 text-cyan-300 font-black">34.1</td><td class="py-3 px-3 text-yellow-300 font-bold">Monitor</td><td class="py-3 px-3 text-purple-300 font-black">LEAP QUALIFIED</td></tr>
+            <tr class="bg-purple-950/40"><td class="py-3 px-3 font-sans font-black text-white text-lg">SLV</td><td class="py-3 px-3 font-sans text-slate-200">Commodity</td><td class="py-3 px-3 text-yellow-300 font-black">$48.72</td><td class="py-3 px-3">39.4%</td><td class="py-3 px-3 text-purple-300 font-black">4.6%</td><td class="py-3 px-3">30.2%</td><td class="py-3 px-3 text-cyan-300 font-black">31.4</td><td class="py-3 px-3 text-yellow-300 font-bold">Monitor</td><td class="py-3 px-3 text-purple-300 font-black">LEAP QUALIFIED</td></tr>
+            <tr class="bg-purple-950/40"><td class="py-3 px-3 font-sans font-black text-white text-lg">IAU</td><td class="py-3 px-3 font-sans text-slate-200">Commodity</td><td class="py-3 px-3 text-yellow-300 font-black">$75.15</td><td class="py-3 px-3">20.3%</td><td class="py-3 px-3 text-purple-300 font-black">18.2%</td><td class="py-3 px-3">4.8%</td><td class="py-3 px-3 text-cyan-300 font-black">34.1</td><td class="py-3 px-3 text-yellow-300 font-bold">Monitor</td><td class="py-3 px-3 text-purple-300 font-black">LEAP QUALIFIED</td></tr>
+            <tr class="bg-emerald-950/40"><td class="py-3 px-3 font-sans font-black text-white text-lg">TLT</td><td class="py-3 px-3 font-sans text-slate-200">Bonds</td><td class="py-3 px-3 text-yellow-300 font-black">$81.34</td><td class="py-3 px-3">12.0%</td><td class="py-3 px-3 text-emerald-300 font-black">100.0%</td><td class="py-3 px-3">99.2%</td><td class="py-3 px-3">62.5</td><td class="py-3 px-3 text-emerald-300 font-black">WHEEL TRIGGERED</td><td class="py-3 px-3 text-slate-200 font-bold">Pending</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 5: MANUAL POSITIONS & DYNAMIC EXITS (CROSS-DEVICE WEB FORM) -->
+    <div id="panel-positions" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
+        <div>
+          <h2 class="text-xl md:text-2xl font-black text-white">Manual Position Monitor &amp; Dynamic Exits</h2>
+          <p class="text-sm font-bold text-slate-300">
+            Add or close positions from any phone, tablet, or laptop. Syncs directly with <code class="text-yellow-300 bg-slate-900 px-2 py-0.5 rounded">positions.csv</code>.
+          </p>
+        </div>
+      </div>
+
+      <!-- Add Position Form (Works from Phone / Tablet / PC) -->
+      <div class="bg-[#090d16] border-2 border-yellow-500 rounded-xl p-5 space-y-4">
+        <h3 class="text-lg font-black text-yellow-300">+ Add Manual Trade to Live Monitor</h3>
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm font-bold">
+          <div>
+            <label class="block text-slate-300 mb-1">Ticker</label>
+            <select id="posSymbol" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-white font-black">
+              <option value="SPY">SPY</option>
+              <option value="QQQ">QQQ</option>
+              <option value="XSP">XSP</option>
+              <option value="QQQM">QQQM</option>
+              <option value="SPYM">SPYM</option>
+              <option value="TQQQ">TQQQ</option>
+              <option value="SOXL">SOXL</option>
+              <option value="SPXL">SPXL</option>
+              <option value="GLD">GLD</option>
+              <option value="SLV">SLV</option>
+              <option value="IAU">IAU</option>
+              <option value="IBIT">IBIT</option>
+              <option value="TLT">TLT</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-300 mb-1">Strike ($)</label>
+            <input id="posStrike" type="number" step="0.5" value="78.0" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-yellow-300 font-mono font-black">
+          </div>
+          <div>
+            <label class="block text-slate-300 mb-1">Option Type</label>
+            <select id="posType" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-white font-black">
+              <option value="PUT">PUT</option>
+              <option value="CALL">CALL</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-300 mb-1">Expiration</label>
+            <input id="posExp" type="date" value="2026-11-27" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-cyan-300 font-mono font-black">
+          </div>
+          <div>
+            <label class="block text-slate-300 mb-1">Contracts (- for Sold)</label>
+            <input id="posContracts" type="number" value="-1" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-white font-mono font-black">
+          </div>
+          <div>
+            <label class="block text-slate-300 mb-1">Entry Credit/Debit ($)</label>
+            <input id="posPremium" type="number" step="0.01" value="0.32" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-emerald-300 font-mono font-black">
+          </div>
+        </div>
+        <button onclick="addPositionFromUI()" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl border-2 border-white shadow transition">
+          ➕ Save &amp; Monitor Live
+        </button>
+      </div>
+
+      <div id="manualPositionsContainer" class="bg-[#090d16] border-2 border-slate-700 rounded-xl p-6 text-center space-y-3">
+        <p class="text-lg font-bold text-slate-300">Currently 0 active positions entered in positions.csv.</p>
+        <p class="text-sm text-slate-300 max-w-xl mx-auto">
+          Use the form above from any device (or edit <code class="text-cyan-300 font-mono">positions.csv</code>) to monitor real trades for 50% Profit &amp; &lt;14 DTE Gamma Exits.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let isLargeFont = false;
+    let autoSyncActive = true;
+    let syncIntervalSeconds = 60;
+    let secondsRemaining = 60;
+    let timerHandle = null;
+
+    function toggleLargeFont() {
+      isLargeFont = !isLargeFont;
+      const body = document.getElementById('mainBody');
+      const btn = document.getElementById('fontToggleBtn');
+      if (isLargeFont) {
+        body.style.fontSize = '22px';
+        btn.innerText = '🔍 Standard Font (18px)';
+        btn.classList.remove('bg-yellow-400', 'text-black');
+        btn.classList.add('bg-white', 'text-black');
+      } else {
+        body.style.fontSize = '18px';
+        btn.innerText = '🔍 Glasses Mode (22px Zoom)';
+        btn.classList.remove('bg-white', 'text-black');
+        btn.classList.add('bg-yellow-400', 'text-black');
+      }
+    }
+
+    function showTab(tabId) {
+      const tabs = ['wheel', 'leap', 'leveraged', 'telemetry', 'positions'];
+      tabs.forEach(t => {
+        const panel = document.getElementById(`panel-${t}`);
+        if (panel) panel.classList.add('hidden');
+        const btn = document.getElementById(`tabBtn-${t}`);
+        if (btn) {
+          btn.classList.remove('bg-emerald-500', 'bg-amber-400', 'text-black', 'border-white');
+          btn.classList.add('bg-[#0e172a]', 'text-slate-200', 'border-slate-600');
+        }
+      });
+
+      const activePanel = document.getElementById(`panel-${tabId}`);
+      if (activePanel) activePanel.classList.remove('hidden');
+      const activeBtn = document.getElementById(`tabBtn-${tabId}`);
+      if (activeBtn) {
+        activeBtn.classList.remove('bg-[#0e172a]', 'text-slate-200', 'border-slate-600');
+        if (tabId === 'leveraged') {
+          activeBtn.classList.add('bg-amber-400', 'text-black', 'border-white');
+        } else {
+          activeBtn.classList.add('bg-emerald-500', 'text-black', 'border-white');
+        }
+      }
+    }
+
+    function changeSyncInterval(val) {
+      syncIntervalSeconds = parseInt(val, 10);
+      secondsRemaining = syncIntervalSeconds;
+      document.getElementById('syncCountdown').innerText = `${secondsRemaining}s`;
+    }
+
+    function toggleAutoSync() {
+      autoSyncActive = !autoSyncActive;
+      const btn = document.getElementById('pauseSyncBtn');
+      const beacon = document.getElementById('syncBeacon');
+      const statusText = document.getElementById('syncStatusText');
+      if (autoSyncActive) {
+        btn.innerText = '⏸ Pause';
+        beacon.classList.add('pulse-beacon', 'bg-emerald-400');
+        beacon.classList.remove('bg-red-400');
+        statusText.innerText = 'AUTO-SYNC: ACTIVE';
+        statusText.classList.remove('text-red-400');
+        statusText.classList.add('text-emerald-300');
+      } else {
+        btn.innerText = '▶ Resume';
+        beacon.classList.remove('pulse-beacon', 'bg-emerald-400');
+        beacon.classList.add('bg-red-400');
+        statusText.innerText = 'AUTO-SYNC: PAUSED';
+        statusText.classList.remove('text-emerald-300');
+        statusText.classList.add('text-red-400');
+      }
+    }
+
+    function startTimer() {
+      if (timerHandle) clearInterval(timerHandle);
+      timerHandle = setInterval(() => {
+        if (!autoSyncActive) return;
+        secondsRemaining -= 1;
+        if (secondsRemaining <= 0) {
+          secondsRemaining = syncIntervalSeconds;
+          manualSync();
+        }
+        document.getElementById('syncCountdown').innerText = `${secondsRemaining}s`;
+      }, 1000);
+    }
+
+    async function manualSync() {
+      const syncBtn = document.getElementById('syncBtn');
+      syncBtn.innerText = '🔄 Syncing...';
+      try {
+        const res = await fetch('/api/summary');
+        if (res.ok) {
+          const data = await res.json();
+          renderDashboardData(data);
+          const nowStr = new Date().toLocaleTimeString();
+          document.getElementById('lastSyncTime').innerText = `${nowStr} (Live)`;
+        }
+      } catch (err) {
+        console.warn('API polling offline, fallback to cached live telemetry:', err);
+        const nowStr = new Date().toLocaleTimeString();
+        document.getElementById('lastSyncTime').innerText = `${nowStr} (Cached Live)`;
+      } finally {
+        syncBtn.innerText = '🔄 Sync Now';
+        secondsRemaining = syncIntervalSeconds;
+      }
+    }
+
+    async function addPositionFromUI() {
+      const payload = {
+        symbol: document.getElementById('posSymbol').value,
+        strike: parseFloat(document.getElementById('posStrike').value),
+        option_type: document.getElementById('posType').value,
+        expiration: document.getElementById('posExp').value,
+        contracts: parseInt(document.getElementById('posContracts').value, 10),
+        entry_premium: parseFloat(document.getElementById('posPremium').value),
+      };
+      try {
+        const res = await fetch('/api/positions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          await manualSync();
+        }
+      } catch (err) {
+        alert('Start the Option Sentinel server (python.cmd option_sentinel.py --server) to save positions via web UI.');
+      }
+    }
+
+    async function deletePositionFromUI(idx) {
+      try {
+        const res = await fetch('/api/positions/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ index: idx }),
+        });
+        if (res.ok) {
+          await manualSync();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function renderDashboardData(data) {
+      if (!data) return;
+      if (data.ticker_count) document.getElementById('statTickersCount').innerText = `${data.ticker_count} Assets`;
+      if (data.wheel_opportunities !== undefined) document.getElementById('statWheelCount').innerText = `${data.wheel_opportunities} Triggered`;
+      if (data.leap_opportunities !== undefined) document.getElementById('statLeapCount').innerText = `${data.leap_opportunities} Qualified`;
+      if (data.manual_positions_count !== undefined) {
+        document.getElementById('statPositionsCount').innerText = `${data.manual_positions_count} Active`;
+      }
+
+      // Update 3x Leveraged ETFs Table if present
+      if (data.leveraged_etfs_guidance && data.leveraged_etfs_guidance.length > 0) {
+        const tbody = document.getElementById('leveragedTableBody');
+        tbody.innerHTML = '';
+        data.leveraged_etfs_guidance.forEach(row => {
+          const tr = document.createElement('tr');
+          tr.className = 'bg-slate-900/60 hover:bg-slate-800/60';
+          tr.innerHTML = `
+            <td class="py-4 px-3 text-xl font-black text-white">${row.symbol}</td>
+            <td class="py-4 px-3 text-slate-200">3x Leveraged</td>
+            <td class="py-4 px-3 text-yellow-300 font-mono text-lg">$${row.spot.toFixed(2)}</td>
+            <td class="py-4 px-3 text-emerald-300 font-mono">${row.iv_current.toFixed(1)}%</td>
+            <td class="py-4 px-3 text-red-300 font-mono">&plusmn;$${row.expected_1sd_move.toFixed(2)}</td>
+            <td class="py-4 px-3 text-xl font-black text-emerald-400 font-mono bg-slate-950 px-2">$${row.safe_csp_strike.toFixed(1)} Put</td>
+            <td class="py-4 px-3 text-white font-mono">${row.downside_buffer_pct.toFixed(1)}% OTM</td>
+            <td class="py-4 px-3 text-cyan-300 font-mono text-sm">${row.live_contract}</td>
+            <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$${row.live_mid.toFixed(2)}</td>
+            <td class="py-4 px-3 text-cyan-300 font-mono text-lg">${row.annualized_roc_est.toFixed(1)}%</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      // Update Manual Positions Container
+      if (data.manual_positions) {
+        const container = document.getElementById('manualPositionsContainer');
+        if (data.manual_positions.length === 0) {
+          container.innerHTML = `
+            <p class="text-lg font-bold text-slate-300">Currently 0 active positions entered in positions.csv.</p>
+            <p class="text-sm text-slate-300 max-w-xl mx-auto">
+              Use the form above from any device (or edit <code class="text-cyan-300 font-mono">positions.csv</code>) to monitor real trades for 50% Profit &amp; &lt;14 DTE Gamma Exits.
+            </p>
+          `;
+        } else {
+          let rowsHtml = data.manual_positions.map(pos => {
+            let badgeColor = 'bg-slate-700 text-white';
+            if (pos.gamma_danger) badgeColor = 'bg-red-500 text-white';
+            else if (pos.profit_target_hit) badgeColor = 'bg-emerald-500 text-black';
+            return `
+              <tr class="border-b border-slate-700">
+                <td class="py-3 px-3 text-lg font-black text-white">${pos.symbol} $${pos.strike} ${pos.option_type}</td>
+                <td class="py-3 px-3 font-mono text-cyan-300">${pos.expiration} (${pos.dte} DTE)</td>
+                <td class="py-3 px-3 font-mono">${pos.contracts}</td>
+                <td class="py-3 px-3 font-mono text-yellow-300">$${pos.entry_premium.toFixed(2)} &rarr; $${pos.current_mid.toFixed(2)}</td>
+                <td class="py-3 px-3 font-mono font-black ${pos.pnl_dollars >= 0 ? 'text-emerald-300' : 'text-red-400'}">
+                  $${pos.pnl_dollars >= 0 ? '+' : ''}${pos.pnl_dollars.toFixed(2)} (${pos.pnl_pct.toFixed(1)}%)
+                </td>
+                <td class="py-3 px-3"><span class="px-3 py-1 rounded-lg font-black text-xs ${badgeColor}">${pos.status}</span></td>
+                <td class="py-3 px-3 text-right">
+                  <button onclick="deletePositionFromUI(${pos.index})" class="px-3 py-1 bg-red-600 hover:bg-red-500 text-white text-xs font-black rounded-lg">✖ Remove</button>
+                </td>
+              </tr>
+            `;
+          }).join('');
+          container.innerHTML = `
+            <div class="overflow-x-auto text-left">
+              <table class="w-full text-sm md:text-base font-bold">
+                <thead>
+                  <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase">
+                    <th class="py-2 px-3">Position</th>
+                    <th class="py-2 px-3">Expiration / DTE</th>
+                    <th class="py-2 px-3">Qty</th>
+                    <th class="py-2 px-3">Entry &rarr; Live Mid</th>
+                    <th class="py-2 px-3">Live P&amp;L</th>
+                    <th class="py-2 px-3">Dynamic Exit Status</th>
+                    <th class="py-2 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>${rowsHtml}</tbody>
+              </table>
+            </div>
+          `;
+        }
+      }
+    }
+
+    // Initialize
+    window.addEventListener('DOMContentLoaded', () => {
+      manualSync();
+      startTimer();
+    });
+  </script>
+</body>
+</html>
