@@ -673,12 +673,13 @@ class GammaDangerSentinel:
                     exp_str = row[3].strip()
                     contracts = int(row[4])
                     entry_prem = float(row[5])
-                    user_rows.append((sym, strike, opt_type, exp_str, contracts, entry_prem))
+                    acct_label = row[6].strip() if len(row) > 6 else "Manual"
+                    user_rows.append((sym, strike, opt_type, exp_str, contracts, entry_prem, acct_label))
                 except Exception:
                     continue
 
         results: List[Dict[str, Any]] = []
-        for idx, (sym, strike, opt_type, exp_str, contracts, entry_prem) in enumerate(user_rows, start=1):
+        for idx, (sym, strike, opt_type, exp_str, contracts, entry_prem, acct_label) in enumerate(user_rows, start=1):
             try:
                 exp_date = datetime.datetime.strptime(exp_str, "%Y-%m-%d").date()
                 dte = (exp_date - today).days
@@ -696,20 +697,23 @@ class GammaDangerSentinel:
                 pnl = (curr_mid - entry_prem) * abs(contracts) * 100.0
                 pnl_pct = ((curr_mid - entry_prem) / entry_prem) * 100.0 if entry_prem > 0 else 0.0
 
-            gamma_danger = dte < 14
-            profit_hit = pnl_pct >= 50.0
+            gamma_danger = (dte < 14 and contracts < 0)
+            profit_hit = (pnl_pct >= 50.0 and contracts < 0)
             if gamma_danger and profit_hit:
                 status = "EXIT NOW: 50% PROFIT + <14 DTE GAMMA"
             elif profit_hit:
                 status = "EXIT NOW: 50% MAX PROFIT HIT"
             elif gamma_danger:
                 status = "ROLL / EXIT: <14 DTE GAMMA ZONE"
+            elif contracts > 0:
+                status = "HOLD LEAP: LONG CORE POSITION" if dte >= 60 else "REVIEW LEAP ROLL (<60 DTE)"
             else:
                 status = "HOLD: SAFE THETA HARVEST"
 
             results.append({
                 "index": idx,
                 "position_id": f"POS-{idx:02d}-{sym}",
+                "account": acct_label,
                 "symbol": sym,
                 "strike": strike,
                 "option_type": opt_type,
@@ -842,6 +846,18 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
             self.sentinel.delete_manual_position(int(body.get("index", 0)))
             self._send_json_response({"status": "success", "positions": self.sentinel.evaluate_all_manual_positions()})
+        elif path == "/api/positions/import-fidelity":
+            try:
+                from convert_fidelity_positions import convert_latest_fidelity_to_positions
+                src_csv, converted = convert_latest_fidelity_to_positions()
+                self._send_json_response({
+                    "status": "success",
+                    "source_file": os.path.basename(src_csv),
+                    "imported_count": len(converted),
+                    "positions": self.sentinel.evaluate_all_manual_positions(),
+                })
+            except Exception as e:
+                self._send_json_response({"status": "error", "message": str(e)})
         else:
             self.send_error(404, "Unknown POST route")
 

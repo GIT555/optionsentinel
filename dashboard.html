@@ -572,9 +572,12 @@
         <div>
           <h2 class="text-xl md:text-2xl font-black text-white">Manual Position Monitor &amp; Dynamic Exits</h2>
           <p class="text-sm font-bold text-slate-300">
-            Add or close positions from any phone, tablet, or laptop. Syncs directly with <code class="text-yellow-300 bg-slate-900 px-2 py-0.5 rounded">positions.csv</code>.
+            Add or close positions from any phone, tablet, or laptop, or import directly from your <code class="text-cyan-300 bg-slate-900 px-2 py-0.5 rounded">Fidelity/</code> folder into <code class="text-yellow-300 bg-slate-900 px-2 py-0.5 rounded">positions.csv</code>.
           </p>
         </div>
+        <button onclick="importFidelityFromUI()" id="importFidelityBtn" class="px-5 py-2.5 bg-cyan-400 hover:bg-cyan-300 text-black font-black rounded-xl border-2 border-white shadow transition">
+          📂 Sync Latest Fidelity CSV
+        </button>
       </div>
 
       <!-- Add Position Form (Works from Phone / Tablet / PC) -->
@@ -787,6 +790,32 @@
       }
     }
 
+    async function importFidelityFromUI() {
+      const btn = document.getElementById('importFidelityBtn');
+      if (btn) btn.innerText = '⏳ Importing Fidelity CSV...';
+      try {
+        const res = await fetch('/api/positions/import-fidelity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'success') {
+            await manualSync();
+            if (btn) btn.innerText = `✅ Imported ${data.imported_count} Fidelity Options`;
+            setTimeout(() => { if (btn) btn.innerText = '📂 Sync Latest Fidelity CSV'; }, 3500);
+          } else {
+            alert('Fidelity Import Error: ' + (data.message || 'Unknown error'));
+            if (btn) btn.innerText = '📂 Sync Latest Fidelity CSV';
+          }
+        }
+      } catch (err) {
+        alert('Run `python convert_fidelity_positions.py` or start the Option Sentinel server.');
+        if (btn) btn.innerText = '📂 Sync Latest Fidelity CSV';
+      }
+    }
+
     function renderDashboardData(data) {
       if (!data) return;
       if (data.ticker_count) document.getElementById('statTickersCount').innerText = `${data.ticker_count} Assets`;
@@ -861,11 +890,13 @@
             let badgeColor = 'bg-slate-700 text-white';
             if (pos.gamma_danger) badgeColor = 'bg-red-500 text-white';
             else if (pos.profit_target_hit) badgeColor = 'bg-emerald-500 text-black';
+            else if (pos.contracts > 0) badgeColor = 'bg-purple-600 text-white';
             return `
               <tr class="border-b border-slate-700">
+                <td class="py-3 px-3 text-sm font-bold text-slate-300">${pos.account || 'Manual'}</td>
                 <td class="py-3 px-3 text-lg font-black text-white">${pos.symbol} $${pos.strike} ${pos.option_type}</td>
                 <td class="py-3 px-3 font-mono text-cyan-300">${pos.expiration} (${pos.dte} DTE)</td>
-                <td class="py-3 px-3 font-mono">${pos.contracts}</td>
+                <td class="py-3 px-3 font-mono ${pos.contracts > 0 ? 'text-purple-300' : 'text-amber-300'}">${pos.contracts > 0 ? '+' + pos.contracts : pos.contracts}</td>
                 <td class="py-3 px-3 font-mono text-yellow-300">$${pos.entry_premium.toFixed(2)} &rarr; $${pos.current_mid.toFixed(2)}</td>
                 <td class="py-3 px-3 font-mono font-black ${pos.pnl_dollars >= 0 ? 'text-emerald-300' : 'text-red-400'}">
                   $${pos.pnl_dollars >= 0 ? '+' : ''}${pos.pnl_dollars.toFixed(2)} (${pos.pnl_pct.toFixed(1)}%)
@@ -882,6 +913,7 @@
               <table class="w-full text-sm md:text-base font-bold">
                 <thead>
                   <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase">
+                    <th class="py-2 px-3">Account</th>
                     <th class="py-2 px-3">Position</th>
                     <th class="py-2 px-3">Expiration / DTE</th>
                     <th class="py-2 px-3">Qty</th>
