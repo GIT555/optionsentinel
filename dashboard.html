@@ -179,8 +179,8 @@
       </div>
       <div class="bg-[#0e172a] border-2 border-yellow-500 rounded-2xl p-5">
         <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-yellow-300">Manual Positions</p>
-        <p id="statPositionsCount" class="text-3xl md:text-4xl font-black text-yellow-300 mt-1">0 Active</p>
-        <p class="text-xs font-bold text-slate-300 mt-1">Tracked via positions.csv</p>
+        <p id="statPositionsCount" class="text-3xl md:text-4xl font-black text-yellow-300 mt-1">16 Active</p>
+        <p class="text-xs font-bold text-slate-300 mt-1">Synced from Fidelity CSV</p>
       </div>
     </div>
 
@@ -632,9 +632,9 @@
       </div>
 
       <div id="manualPositionsContainer" class="bg-[#090d16] border-2 border-slate-700 rounded-xl p-6 text-center space-y-3">
-        <p class="text-lg font-bold text-slate-300">Currently 0 active positions entered in positions.csv.</p>
+        <p class="text-lg font-bold text-emerald-300">16 Fidelity Option Positions Loaded in <code class="text-yellow-300 font-mono">positions.csv</code>.</p>
         <p class="text-sm text-slate-300 max-w-xl mx-auto">
-          Use the form above from any device (or edit <code class="text-cyan-300 font-mono">positions.csv</code>) to monitor real trades for 50% Profit &amp; &lt;14 DTE Gamma Exits.
+          Click <strong>📂 Sync Latest Fidelity CSV</strong> above anytime you drop a new Fidelity export into the <code class="text-cyan-300 font-mono">Fidelity/</code> folder.
         </p>
       </div>
     </div>
@@ -768,7 +768,10 @@
           body: JSON.stringify(payload),
         });
         if (res.ok) {
-          await manualSync();
+          const data = await res.json();
+          if (data.positions) {
+            renderDashboardData({ manual_positions: data.positions, manual_positions_count: data.positions.length });
+          }
         }
       } catch (err) {
         alert('Start the Option Sentinel server (python.cmd option_sentinel.py --server) to save positions via web UI.');
@@ -783,7 +786,10 @@
           body: JSON.stringify({ index: idx }),
         });
         if (res.ok) {
-          await manualSync();
+          const data = await res.json();
+          if (data.positions) {
+            renderDashboardData({ manual_positions: data.positions, manual_positions_count: data.positions.length });
+          }
         }
       } catch (err) {
         console.error(err);
@@ -802,9 +808,12 @@
         if (res.ok) {
           const data = await res.json();
           if (data.status === 'success') {
-            await manualSync();
+            renderDashboardData({
+              manual_positions: data.positions,
+              manual_positions_count: data.imported_count,
+            });
             if (btn) btn.innerText = `✅ Imported ${data.imported_count} Fidelity Options`;
-            setTimeout(() => { if (btn) btn.innerText = '📂 Sync Latest Fidelity CSV'; }, 3500);
+            setTimeout(() => { if (btn) btn.innerText = '📂 Sync Latest Fidelity CSV'; }, 3000);
           } else {
             alert('Fidelity Import Error: ' + (data.message || 'Unknown error'));
             if (btn) btn.innerText = '📂 Sync Latest Fidelity CSV';
@@ -931,8 +940,15 @@
       }
     }
 
-    // Initialize
-    window.addEventListener('DOMContentLoaded', () => {
+    // Initialize: Load positions in <5ms first, then sync full telemetry
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        const posRes = await fetch('/api/positions');
+        if (posRes.ok) {
+          const positions = await posRes.json();
+          renderDashboardData({ manual_positions: positions, manual_positions_count: positions.length });
+        }
+      } catch (e) {}
       manualSync();
       startTimer();
     });

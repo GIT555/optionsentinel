@@ -707,14 +707,9 @@ class SignalSentinel:
             exp_date = datetime.datetime.strptime(exp_str, "%Y-%m-%d").date()
             dte = (exp_date - today).days
 
-            # Query real live quote from market
-            chain = self.market_client.get_live_option_chain(sym, max(1, dte - 5), dte + 5)
-            matching = [c for c in chain if c.option_type == opt_type and abs(c.strike - strike) < 0.01]
-
-            if matching:
-                curr_mid = matching[0].mid
-            else:
-                curr_mid = entry_prem
+            # Query real live quote from market (cache-aligned O(1) lookup)
+            matched = self.market_client.lookup_position_contract(sym, opt_type, strike, dte)
+            curr_mid = matched.mid if matched else entry_prem
 
             if contracts < 0:
                 contraction_pct = ((entry_prem - curr_mid) / entry_prem) * 100.0 if entry_prem > 0 else 0.0

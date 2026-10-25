@@ -608,13 +608,13 @@ class GammaDangerSentinel:
             exp_date = datetime.datetime.strptime(exp_str, "%Y-%m-%d").date()
             dte = (exp_date - today).days
 
-            # Query real live quote from market
-            chain = self.scanner.market_client.get_live_option_chain(sym, max(1, dte - 5), dte + 5)
-            matching = [c for c in chain if c.option_type == opt_type and abs(c.strike - strike) < 0.01]
+            if contracts >= 0 or dte >= 14:
+                continue
 
-            curr_mid = matching[0].mid if matching else entry_prem
-            gamma_val = matching[0].gamma_approx if matching else 0.02
-            delta_val = matching[0].delta_approx if matching else -0.25
+            matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte)
+            curr_mid = matched.mid if matched else entry_prem
+            gamma_val = matched.gamma_approx if matched else 0.02
+            delta_val = matched.delta_approx if matched else -0.25
 
             if contracts < 0 and dte < 14:
                 pnl = (entry_prem - curr_mid) * abs(contracts) * 100.0
@@ -686,9 +686,8 @@ class GammaDangerSentinel:
             except Exception:
                 dte = 30
 
-            chain = self.scanner.market_client.get_live_option_chain(sym, max(1, dte - 5), dte + 5)
-            matching = [c for c in chain if c.option_type == opt_type and abs(c.strike - strike) < 0.01]
-            curr_mid = matching[0].mid if matching else entry_prem
+            matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte)
+            curr_mid = matched.mid if matched else entry_prem
 
             if contracts < 0:
                 pnl = (entry_prem - curr_mid) * abs(contracts) * 100.0
