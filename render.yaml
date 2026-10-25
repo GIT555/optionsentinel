@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: option-sentinel
+    runtime: python
+    plan: free
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    startCommand: python option_sentinel.py --server --host 0.0.0.0
