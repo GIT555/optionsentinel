@@ -27,6 +27,13 @@ DESC_REGEX = re.compile(
     re.IGNORECASE,
 )
 
+# Core watched tickers shared with Option Sentinel (zero additional API calls)
+WATCHED_EQUITY_SYMBOLS = {
+    "SPY", "QQQ", "XSP", "QQQM", "SPYM",
+    "TQQQ", "SOXL", "SPXL",
+    "GLD", "SLV", "IAU", "IBIT", "TLT",
+}
+
 
 @dataclass
 class ConvertedOptionPosition:
@@ -132,12 +139,45 @@ def infer_contract_direction(
     return 1 if dte > 120 else -1
 
 
-def parse_fidelity_csv(csv_path: str, reference_date: Optional[datetime.date] = None) -> List[ConvertedOptionPosition]:
+def load_existing_equity_overrides(positions_csv_path: str) -> Dict[Tuple[str, str], Tuple[int, float]]:
     """
-    Reads a Fidelity Portfolio Positions CSV file and returns normalized option positions.
-    Aggregates identical option contracts within the same account if listed as separate lots.
+    Reads existing EQUITY rows from positions.csv so that user-customized share
+    counts and cost-basis values are preserved when importing a Fidelity 'Options'
+    view CSV (which lists ETFs/Stocks by account but omits Quantity/Cost columns).
+    """
+    overrides: Dict[Tuple[str, str], Tuple[int, float]] = {}
+    if not positions_csv_path or not os.path.exists(positions_csv_path):
+        return overrides
+    try:
+        with open(positions_csv_path, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if not row or row[0].startswith("#") or row[0].lower() == "symbol":
+                    continue
+                if len(row) >= 6 and row[2].strip().upper() in ("EQUITY", "SHARES", "STOCK"):
+                    sym = row[0].strip().upper()
+                    qty = int(float(row[4]))
+                    cost = float(row[5])
+                    acct = row[6].strip() if len(row) > 6 else "Fidelity"
+                    overrides[(acct, sym)] = (qty, cost)
+    except Exception:
+        pass
+    return overrides
+
+
+def parse_fidelity_csv(
+    csv_path: str,
+    reference_date: Optional[datetime.date] = None,
+    include_watched_equities: bool = True,
+    existing_positions_csv: Optional[str] = None,
+) -> List[ConvertedOptionPosition]:
+    """
+    Reads a Fidelity Portfolio Positions CSV file and returns normalized option + watched equity positions.
+    Aggregates identical option contracts or equity lots within the same account.
     """
     aggregated: Dict[Tuple[str, str, float, str, str], ConvertedOptionPosition] = {}
+    equity_overrides = load_existing_equity_overrides(existing_positions_csv) if existing_positions_csv else {}
+    seen_exact_rows = set()
 
     with open(csv_path, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -148,10 +188,26 @@ def parse_fidelity_csv(csv_path: str, reference_date: Optional[datetime.date] = 
             # Normalize keys
             norm_row = {(k.strip().lower() if k else ""): (v.strip() if isinstance(v, str) else "") for k, v in row.items()}
 
+            # 1. Exact duplicate line guard (prevents double-counting if rows were copy-pasted twice into the CSV)
+            row_signature = (
+                norm_row.get("account number", ""),
+                norm_row.get("symbol", ""),
+                norm_row.get("expiration", ""),
+                norm_row.get("quantity", ""),
+                norm_row.get("current value", ""),
+                norm_row.get("cost basis total", ""),
+                norm_row.get("account type", ""),
+            )
+            if any(row_signature) and row_signature in seen_exact_rows:
+                continue
+            seen_exact_rows.add(row_signature)
+
             raw_sym = norm_row.get("symbol", "")
             inv_type = norm_row.get("investment type", "")
             desc = norm_row.get("description", "")
             call_put = norm_row.get("call/put", "")
+            acct_num = norm_row.get("account number", "").strip()
+            acct_name = norm_row.get("account name", "").strip()
 
             # Check if this row is an Option contract
             occ_parsed = parse_occ_symbol(raw_sym)
@@ -162,7 +218,68 @@ def parse_fidelity_csv(csv_path: str, reference_date: Optional[datetime.date] = 
                 or " CALL" in desc.upper()
                 or " PUT" in desc.upper()
             )
+
             if not is_option:
+                # Check if this is a watched Equity / ETF ticker (same tickers as Option Sentinel)
+                clean_sym = raw_sym.strip().upper()
+                is_equity_type = inv_type.lower() in ("etfs", "stocks", "equities", "")
+                if include_watched_equities and is_equity_type and clean_sym in WATCHED_EQUITY_SYMBOLS:
+                    explicit_qty = clean_currency(norm_row.get("quantity", ""))
+                    last_price = clean_currency(norm_row.get("last price", "")) or 0.0
+                    avg_cost = (
+                        clean_currency(norm_row.get("average cost basis", ""))
+                        or clean_currency(norm_row.get("cost basis per share", ""))
+                    )
+                    cost_total = clean_currency(norm_row.get("cost basis total", ""))
+
+                    acct_label = acct_name if acct_name else "Fidelity"
+                    if acct_num and acct_name == "ROTH IRA" and acct_num.endswith("0688"):
+                        acct_label = "ROTH IRA (0688)"
+
+                    override = equity_overrides.get((acct_label, clean_sym)) or equity_overrides.get((acct_name, clean_sym))
+
+                    if explicit_qty is not None and abs(explicit_qty) > 0:
+                        shares = int(round(explicit_qty))
+                    elif override is not None:
+                        shares = override[0]
+                    else:
+                        shares = 100  # Default 100-share covered-call lot when exported from Fidelity Options Greeks view
+
+                    if avg_cost is not None and avg_cost > 0:
+                        cost_per_share = round(avg_cost, 2)
+                    elif cost_total is not None and shares > 0:
+                        cost_per_share = round(abs(cost_total) / shares, 2)
+                    elif override is not None and override[1] > 0:
+                        cost_per_share = override[1]
+                    else:
+                        cost_per_share = round(last_price, 2) if last_price > 0 else 0.0
+
+                    eq_key = (acct_label, clean_sym, 0.0, "EQUITY", "EQUITY")
+                    if eq_key in aggregated:
+                        existing_eq = aggregated[eq_key]
+                        if explicit_qty is not None and abs(explicit_qty) > 0:
+                            added_sh = int(round(explicit_qty))
+                            total_sh = existing_eq.contracts + added_sh
+                            if total_sh > 0 and cost_per_share > 0:
+                                existing_eq.entry_premium = round(
+                                    ((existing_eq.contracts * existing_eq.entry_premium) + (added_sh * cost_per_share)) / total_sh,
+                                    2,
+                                )
+                            existing_eq.contracts = total_sh
+                    else:
+                        aggregated[eq_key] = ConvertedOptionPosition(
+                            account_number=acct_num,
+                            account_name=acct_label,
+                            symbol=clean_sym,
+                            strike=0.0,
+                            option_type="EQUITY",
+                            expiration="EQUITY",
+                            contracts=shares,
+                            entry_premium=cost_per_share,
+                            current_mark=last_price,
+                            delta=1.0,
+                            occ_symbol=clean_sym,
+                        )
                 continue
 
             # Extract core contract identifiers
@@ -181,9 +298,6 @@ def parse_fidelity_csv(csv_path: str, reference_date: Optional[datetime.date] = 
                 expiration = parse_fidelity_date(norm_row.get("expiration", "")) or ""
             if not expiration:
                 continue
-
-            acct_num = norm_row.get("account number", "").strip()
-            acct_name = norm_row.get("account name", "").strip()
 
             # Quantity (if present in Overview export)
             explicit_qty = clean_currency(norm_row.get("quantity", ""))
@@ -210,9 +324,16 @@ def parse_fidelity_csv(csv_path: str, reference_date: Optional[datetime.date] = 
             key = (acct_num, symbol, strike, option_type, expiration)
             if key in aggregated:
                 existing = aggregated[key]
-                # Increment contract count in the same direction
                 step = explicit_qty if (explicit_qty is not None and abs(explicit_qty) > 0) else (1 if existing.contracts > 0 else -1)
-                existing.contracts += int(round(step))
+                step_int = int(round(step))
+                old_abs = abs(existing.contracts)
+                add_abs = abs(step_int)
+                if (old_abs + add_abs) > 0 and entry_premium > 0:
+                    existing.entry_premium = round(
+                        ((old_abs * existing.entry_premium) + (add_abs * entry_premium)) / (old_abs + add_abs),
+                        2,
+                    )
+                existing.contracts += step_int
             else:
                 aggregated[key] = ConvertedOptionPosition(
                     account_number=acct_num,
@@ -228,16 +349,21 @@ def parse_fidelity_csv(csv_path: str, reference_date: Optional[datetime.date] = 
                     occ_symbol=raw_sym.strip(),
                 )
 
-    return list(aggregated.values())
+    # Exclude equity lots with < 100 shares (must have at least 1 covered-call lot of 100 shares)
+    return [
+        pos for pos in aggregated.values()
+        if not (pos.option_type == "EQUITY" and pos.contracts < 100)
+    ]
 
 
 def write_positions_csv(positions: List[ConvertedOptionPosition], output_path: str, source_csv_name: str) -> None:
-    """Writes the converted option positions into Option Sentinel's positions.csv format."""
+    """Writes the converted option and equity positions into Option Sentinel's positions.csv format."""
     header_lines = [
         "# Manual Positions to Monitor (Live Option Sentinel)\n",
         f"# Auto-imported from Fidelity CSV: {source_csv_name} ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})\n",
         "# Format: symbol,strike,option_type,expiration,contracts,entry_premium,account\n",
-        "# contracts < 0 for short options (e.g. -1 for 1 sold put/call), > 0 for long LEAPs\n",
+        "# option_type: PUT, CALL, or EQUITY (for shares of the same watched tickers)\n",
+        "# contracts < 0 for short options (e.g. -1 for 1 sold put/call), > 0 for long LEAPs or EQUITY share count\n",
         "symbol,strike,option_type,expiration,contracts,entry_premium,account\n",
     ]
 
@@ -266,7 +392,7 @@ def convert_latest_fidelity_to_positions(
         raise FileNotFoundError(f"No Fidelity CSV found in {fidelity_dir}")
 
     dst_csv = output_csv or os.path.join(root_dir, "positions.csv")
-    positions = parse_fidelity_csv(src_csv)
+    positions = parse_fidelity_csv(src_csv, existing_positions_csv=dst_csv)
     write_positions_csv(positions, dst_csv, os.path.basename(src_csv))
     return src_csv, positions
 

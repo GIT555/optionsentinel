@@ -704,8 +704,45 @@ class SignalSentinel:
         exit_signals: List[PositionExitSignal] = []
 
         for idx, (sym, strike, opt_type, exp_str, contracts, entry_prem) in enumerate(user_rows, start=1):
-            exp_date = datetime.datetime.strptime(exp_str, "%Y-%m-%d").date()
-            dte = (exp_date - today).days
+            if opt_type in ("EQUITY", "SHARES", "STOCK"):
+                if contracts < 100:
+                    continue
+                snap = self.snapshots.get(sym)
+                curr_mid = snap.spot if snap else (entry_prem if entry_prem > 0 else 100.0)
+                effective_entry = entry_prem if entry_prem > 0 else curr_mid
+                running_pnl = (curr_mid - effective_entry) * contracts
+                contraction_pct = ((curr_mid - effective_entry) / effective_entry) * 100.0 if effective_entry > 0 else 0.0
+                cc_lots = contracts // 100
+                instruction = (
+                    f"HOLD CORE EQUITY ({contracts} shares @ spot ${curr_mid:.2f}). "
+                    + (f"Eligible to write {cc_lots}x Covered Call(s)." if cc_lots > 0 else "Accumulate toward 100-share lot.")
+                )
+                exit_signals.append(
+                    PositionExitSignal(
+                        position_id=f"EQUITY-{idx:02d}-{sym}",
+                        symbol=sym,
+                        option_type="EQUITY",
+                        strike=0.0,
+                        expiration="SHARES",
+                        dte=0,
+                        contracts=contracts,
+                        entry_premium=round(effective_entry, 2),
+                        current_mid=round(curr_mid, 2),
+                        running_pnl_dollars=round(running_pnl, 2),
+                        profit_contraction_pct=round(contraction_pct, 1),
+                        gamma_danger_flag=False,
+                        profit_target_flag=False,
+                        action_directive=ActionSignal.HOLD_POSITION,
+                        order_instruction=instruction,
+                    )
+                )
+                continue
+
+            try:
+                exp_date = datetime.datetime.strptime(exp_str, "%Y-%m-%d").date()
+                dte = (exp_date - today).days
+            except Exception:
+                dte = 30
 
             # Query real live quote from market (cache-aligned O(1) lookup)
             matched = self.market_client.lookup_position_contract(sym, opt_type, strike, dte)

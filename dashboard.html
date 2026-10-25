@@ -178,9 +178,9 @@
         <p class="text-xs font-bold text-yellow-300 mt-1">0.20 Delta CSP Strategy</p>
       </div>
       <div class="bg-[#0e172a] border-2 border-yellow-500 rounded-2xl p-5">
-        <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-yellow-300">Manual Positions</p>
-        <p id="statPositionsCount" class="text-3xl md:text-4xl font-black text-yellow-300 mt-1">16 Active</p>
-        <p class="text-xs font-bold text-slate-300 mt-1">Synced from Fidelity CSV</p>
+        <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-yellow-300">Equity (&ge;100sh) &amp; Options</p>
+        <p id="statPositionsCount" class="text-3xl md:text-4xl font-black text-yellow-300 mt-1">22 Active</p>
+        <p class="text-xs font-bold text-slate-300 mt-1">6 Equity Lots (&ge;100sh) + 16 Options</p>
       </div>
     </div>
 
@@ -198,8 +198,8 @@
       <button onclick="showTab('telemetry')" id="tabBtn-telemetry" class="px-5 py-3 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition">
         4. Live Multi-Asset Telemetry (13 Tickers)
       </button>
-      <button onclick="showTab('positions')" id="tabBtn-positions" class="px-5 py-3 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition">
-        5. Manual Positions &amp; Dynamic Exits (positions.csv)
+      <button onclick="showTab('positions')" id="tabBtn-positions" class="px-5 py-3 rounded-xl bg-[#0e172a] text-yellow-300 hover:text-white border-2 border-slate-600 transition">
+        5. Equity Holdings, Net Delta &amp; Options (positions.csv)
       </button>
     </div>
 
@@ -570,9 +570,9 @@
     <div id="panel-positions" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-6">
       <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
         <div>
-          <h2 class="text-xl md:text-2xl font-black text-white">Manual Position Monitor &amp; Dynamic Exits</h2>
+          <h2 class="text-xl md:text-2xl font-black text-white">Equity Holdings, Net Delta &amp; Option Positions</h2>
           <p class="text-sm font-bold text-slate-300">
-            Add or close positions from any phone, tablet, or laptop, or import directly from your <code class="text-cyan-300 bg-slate-900 px-2 py-0.5 rounded">Fidelity/</code> folder into <code class="text-yellow-300 bg-slate-900 px-2 py-0.5 rounded">positions.csv</code>.
+            Unified tracking of your <span class="text-cyan-300 font-black">Equity Shares</span> + <span class="text-yellow-300 font-black">Option Contracts</span> across all accounts using the exact same cached live ticker feeds (zero extra API calls).
           </p>
         </div>
         <button onclick="importFidelityFromUI()" id="importFidelityBtn" class="px-5 py-2.5 bg-cyan-400 hover:bg-cyan-300 text-black font-black rounded-xl border-2 border-white shadow transition">
@@ -580,10 +580,42 @@
         </button>
       </div>
 
+      <!-- COMBINED EQUITY + OPTION SYNERGY: NET DELTA & COVERED CALL CAPACITY -->
+      <div class="bg-[#090d16] border-2 border-cyan-500 rounded-xl p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-3">
+          <div>
+            <h3 class="text-lg md:text-xl font-black text-cyan-300">
+              📊 Combined Equity &amp; Option Exposure: Net Delta &amp; Covered Call Capacity
+            </h3>
+            <p class="text-xs md:text-sm text-slate-300 font-bold">
+              Formula: <code class="text-yellow-300 bg-slate-900 px-2 py-0.5 rounded">Net Share &Delta; = Shares Held + &Sigma;(Option Contracts &times; 100 &times; &Delta;)</code> &bull; <code class="text-emerald-300 bg-slate-900 px-2 py-0.5 rounded">CC Capacity = &lfloor;Shares/100&rfloor; + LEAPs &minus; Short Calls</code>
+            </p>
+          </div>
+          <span class="px-3 py-1 rounded-lg bg-cyan-500 text-black font-black text-xs">
+            ZERO EXTRA API CALLS (SHARED CACHE)
+          </span>
+        </div>
+
+        <div id="equityExposureContainer" class="overflow-x-auto">
+          <p class="text-sm font-bold text-slate-300">Loading combined Equity + Option exposure from <code class="text-yellow-300 font-mono">positions.csv</code>...</p>
+        </div>
+      </div>
+
       <!-- Add Position Form (Works from Phone / Tablet / PC) -->
       <div class="bg-[#090d16] border-2 border-yellow-500 rounded-xl p-5 space-y-4">
-        <h3 class="text-lg font-black text-yellow-300">+ Add Manual Trade to Live Monitor</h3>
-        <div class="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm font-bold">
+        <h3 class="text-lg font-black text-yellow-300">+ Add Manual Equity or Option Position to Live Monitor</h3>
+        <div class="grid grid-cols-2 md:grid-cols-7 gap-4 text-sm font-bold">
+          <div>
+            <label class="block text-slate-300 mb-1">Account</label>
+            <select id="posAccount" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-cyan-300 font-black">
+              <option value="INDIVIDUAL - TOD">INDIVIDUAL - TOD</option>
+              <option value="ROTH IRA">ROTH IRA</option>
+              <option value="Rollover IRA">Rollover IRA</option>
+              <option value="Health Savings Account">HSA</option>
+              <option value="ROTH IRA (0688)">ROTH IRA (0688)</option>
+              <option value="Manual">Manual</option>
+            </select>
+          </div>
           <div>
             <label class="block text-slate-300 mb-1">Ticker</label>
             <select id="posSymbol" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-white font-black">
@@ -603,26 +635,27 @@
             </select>
           </div>
           <div>
+            <label class="block text-slate-300 mb-1">Position Type</label>
+            <select id="posType" onchange="onPosTypeChange()" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-white font-black">
+              <option value="PUT">PUT Option</option>
+              <option value="CALL">CALL Option</option>
+              <option value="EQUITY">EQUITY (Shares)</option>
+            </select>
+          </div>
+          <div id="posStrikeWrap">
             <label class="block text-slate-300 mb-1">Strike ($)</label>
             <input id="posStrike" type="number" step="0.5" value="78.0" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-yellow-300 font-mono font-black">
           </div>
-          <div>
-            <label class="block text-slate-300 mb-1">Option Type</label>
-            <select id="posType" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-white font-black">
-              <option value="PUT">PUT</option>
-              <option value="CALL">CALL</option>
-            </select>
-          </div>
-          <div>
+          <div id="posExpWrap">
             <label class="block text-slate-300 mb-1">Expiration</label>
             <input id="posExp" type="date" value="2026-11-27" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-cyan-300 font-mono font-black">
           </div>
           <div>
-            <label class="block text-slate-300 mb-1">Contracts (- for Sold)</label>
+            <label id="posContractsLabel" class="block text-slate-300 mb-1">Qty (- Sold / + Shares)</label>
             <input id="posContracts" type="number" value="-1" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-white font-mono font-black">
           </div>
           <div>
-            <label class="block text-slate-300 mb-1">Entry Credit/Debit ($)</label>
+            <label id="posPremiumLabel" class="block text-slate-300 mb-1">Entry Price / Cost ($)</label>
             <input id="posPremium" type="number" step="0.01" value="0.32" class="w-full bg-slate-900 border-2 border-slate-600 rounded-lg px-3 py-2 text-emerald-300 font-mono font-black">
           </div>
         </div>
@@ -632,7 +665,7 @@
       </div>
 
       <div id="manualPositionsContainer" class="bg-[#090d16] border-2 border-slate-700 rounded-xl p-6 text-center space-y-3">
-        <p class="text-lg font-bold text-emerald-300">16 Fidelity Option Positions Loaded in <code class="text-yellow-300 font-mono">positions.csv</code>.</p>
+        <p class="text-lg font-bold text-emerald-300">22 Fidelity Equity (&ge;100sh) &amp; Option Positions Loaded in <code class="text-yellow-300 font-mono">positions.csv</code>.</p>
         <p class="text-sm text-slate-300 max-w-xl mx-auto">
           Click <strong>📂 Sync Latest Fidelity CSV</strong> above anytime you drop a new Fidelity export into the <code class="text-cyan-300 font-mono">Fidelity/</code> folder.
         </p>
@@ -752,12 +785,35 @@
       }
     }
 
+    function onPosTypeChange() {
+      const posType = document.getElementById('posType').value;
+      const strikeWrap = document.getElementById('posStrikeWrap');
+      const expWrap = document.getElementById('posExpWrap');
+      const qtyInput = document.getElementById('posContracts');
+      const qtyLabel = document.getElementById('posContractsLabel');
+      const premLabel = document.getElementById('posPremiumLabel');
+      if (posType === 'EQUITY') {
+        if (strikeWrap) strikeWrap.classList.add('opacity-40');
+        if (expWrap) expWrap.classList.add('opacity-40');
+        if (qtyLabel) qtyLabel.innerText = 'Shares Owned (+)';
+        if (premLabel) premLabel.innerText = 'Avg Cost / Share ($)';
+        if (qtyInput && parseInt(qtyInput.value, 10) < 0) qtyInput.value = '100';
+      } else {
+        if (strikeWrap) strikeWrap.classList.remove('opacity-40');
+        if (expWrap) expWrap.classList.remove('opacity-40');
+        if (qtyLabel) qtyLabel.innerText = 'Contracts (- Sold / + Long)';
+        if (premLabel) premLabel.innerText = 'Entry Credit/Debit ($)';
+      }
+    }
+
     async function addPositionFromUI() {
+      const posType = document.getElementById('posType').value;
       const payload = {
+        account: document.getElementById('posAccount') ? document.getElementById('posAccount').value : 'Manual',
         symbol: document.getElementById('posSymbol').value,
-        strike: parseFloat(document.getElementById('posStrike').value),
-        option_type: document.getElementById('posType').value,
-        expiration: document.getElementById('posExp').value,
+        strike: posType === 'EQUITY' ? 0.0 : parseFloat(document.getElementById('posStrike').value),
+        option_type: posType,
+        expiration: posType === 'EQUITY' ? 'EQUITY' : document.getElementById('posExp').value,
         contracts: parseInt(document.getElementById('posContracts').value, 10),
         entry_premium: parseFloat(document.getElementById('posPremium').value),
       };
@@ -770,7 +826,11 @@
         if (res.ok) {
           const data = await res.json();
           if (data.positions) {
-            renderDashboardData({ manual_positions: data.positions, manual_positions_count: data.positions.length });
+            renderDashboardData({
+              manual_positions: data.positions,
+              manual_positions_count: data.positions.length,
+              equity_exposure: data.equity_exposure,
+            });
           }
         }
       } catch (err) {
@@ -788,7 +848,11 @@
         if (res.ok) {
           const data = await res.json();
           if (data.positions) {
-            renderDashboardData({ manual_positions: data.positions, manual_positions_count: data.positions.length });
+            renderDashboardData({
+              manual_positions: data.positions,
+              manual_positions_count: data.positions.length,
+              equity_exposure: data.equity_exposure,
+            });
           }
         }
       } catch (err) {
@@ -811,8 +875,9 @@
             renderDashboardData({
               manual_positions: data.positions,
               manual_positions_count: data.imported_count,
+              equity_exposure: data.equity_exposure,
             });
-            if (btn) btn.innerText = `✅ Imported ${data.imported_count} Fidelity Options`;
+            if (btn) btn.innerText = `✅ Imported ${data.imported_count} Equity & Option Positions`;
             setTimeout(() => { if (btn) btn.innerText = '📂 Sync Latest Fidelity CSV'; }, 3000);
           } else {
             alert('Fidelity Import Error: ' + (data.message || 'Unknown error'));
@@ -832,6 +897,66 @@
       if (data.leap_opportunities !== undefined) document.getElementById('statLeapCount').innerText = `${data.leap_opportunities} Qualified`;
       if (data.manual_positions_count !== undefined) {
         document.getElementById('statPositionsCount').innerText = `${data.manual_positions_count} Active`;
+      }
+
+      // Update Combined Equity & Option Exposure Table if present
+      if (data.equity_exposure) {
+        const eqContainer = document.getElementById('equityExposureContainer');
+        if (eqContainer) {
+          if (data.equity_exposure.length === 0) {
+            eqContainer.innerHTML = `<p class="text-sm font-bold text-slate-300">No Equity or Option positions currently in <code class="text-yellow-300 font-mono">positions.csv</code>.</p>`;
+          } else {
+            let eqRows = data.equity_exposure.map(row => {
+              const ccBadge = row.covered_call_capacity > 0
+                ? `<span class="px-2.5 py-1 rounded-lg bg-emerald-500 text-black font-black text-xs">${row.covered_call_capacity}x CC READY</span>`
+                : `<span class="px-2.5 py-1 rounded-lg bg-slate-700 text-slate-200 font-black text-xs">COVERED</span>`;
+              const deltaColor = row.net_delta_shares >= 0 ? 'text-emerald-300' : 'text-rose-400';
+              const pnlColor = row.total_pnl_dollars >= 0 ? 'text-emerald-300' : 'text-red-400';
+              const expDte = row.cc_expiration ? `${row.cc_expiration} (${row.cc_dte} DTE)` : '33 DTE';
+              const exit50 = row.cc_exit_target_50 ? row.cc_exit_target_50.toFixed(2) : (row.cc_mid * 0.5).toFixed(2);
+              const whenBadge = row.when_to_sell
+                ? `<div class="text-cyan-300 font-black text-xs mb-1">⏰ ${row.when_to_sell}</div>`
+                : '';
+              return `
+                <tr class="border-b border-slate-700 hover:bg-slate-800/40">
+                  <td class="py-3 px-3 text-xl font-black text-white">${row.symbol}</td>
+                  <td class="py-3 px-3 text-xs text-slate-300 font-bold">${row.accounts}</td>
+                  <td class="py-3 px-3 font-mono text-yellow-300">$${row.spot.toFixed(2)} <span class="text-xs text-slate-300">(RSI ${row.rsi_14.toFixed(0)} | IVR ${row.iv_rank.toFixed(0)}%)</span></td>
+                  <td class="py-3 px-3 font-mono text-cyan-300 font-black">${row.shares} sh <span class="text-xs text-slate-300">($${row.equity_market_value.toLocaleString()})</span></td>
+                  <td class="py-3 px-3 font-mono text-purple-300">+${row.long_leap_calls} LEAP / -${row.short_calls} CC / -${row.short_puts} CSP</td>
+                  <td class="py-3 px-3 font-mono font-black ${deltaColor}">${row.net_delta_shares >= 0 ? '+' : ''}${row.net_delta_shares.toFixed(1)} sh &Delta; <span class="text-xs text-slate-300">($${Math.round(row.net_notional_exposure).toLocaleString()})</span></td>
+                  <td class="py-3 px-3 font-mono">${ccBadge}</td>
+                  <td class="py-3 px-3 font-mono text-xs text-yellow-300">
+                    <span class="text-white font-black">$${row.cc_strike} Call @ $${row.cc_mid.toFixed(2)}</span><br>
+                    <span class="text-cyan-300 font-bold">Exp: ${expDte}</span><br>
+                    <span class="text-emerald-300">50% Exit: $${exit50} | ${row.cc_contract}</span>
+                  </td>
+                  <td class="py-3 px-3 font-mono font-black ${pnlColor}">$${row.total_pnl_dollars >= 0 ? '+' : ''}${row.total_pnl_dollars.toFixed(2)}</td>
+                  <td class="py-3 px-3 text-xs font-bold text-white">${whenBadge}<span class="text-yellow-200">${row.directive}</span></td>
+                </tr>
+              `;
+            }).join('');
+            eqContainer.innerHTML = `
+              <table class="w-full text-left text-sm md:text-base font-bold">
+                <thead>
+                  <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase text-xs md:text-sm">
+                    <th class="py-2 px-3">Ticker</th>
+                    <th class="py-2 px-3">Accounts</th>
+                    <th class="py-2 px-3">Spot (RSI / IVR)</th>
+                    <th class="py-2 px-3">Equity Shares</th>
+                    <th class="py-2 px-3">Option Legs</th>
+                    <th class="py-2 px-3">Net Share &Delta; (Notional)</th>
+                    <th class="py-2 px-3">CC Capacity</th>
+                    <th class="py-2 px-3">Live 0.30&Delta; CC Target (Strike / Price / DTE)</th>
+                    <th class="py-2 px-3">Combined P&amp;L</th>
+                    <th class="py-2 px-3">When to Sell &amp; Tactical Order</th>
+                  </tr>
+                </thead>
+                <tbody>${eqRows}</tbody>
+              </table>
+            `;
+          }
+        }
       }
 
       // Update LEAP Long Put Table if present
@@ -896,16 +1021,29 @@
           `;
         } else {
           let rowsHtml = data.manual_positions.map(pos => {
+            const isEquity = pos.option_type === 'EQUITY';
             let badgeColor = 'bg-slate-700 text-white';
-            if (pos.gamma_danger) badgeColor = 'bg-red-500 text-white';
+            if (isEquity) badgeColor = 'bg-cyan-500 text-black';
+            else if (pos.gamma_danger) badgeColor = 'bg-red-500 text-white';
             else if (pos.profit_target_hit) badgeColor = 'bg-emerald-500 text-black';
             else if (pos.contracts > 0) badgeColor = 'bg-purple-600 text-white';
+
+            const posTitle = isEquity
+              ? `${pos.symbol} <span class="text-cyan-300 text-sm">EQUITY SHARES</span>`
+              : `${pos.symbol} $${pos.strike} ${pos.option_type}`;
+            const expDisplay = isEquity
+              ? `<span class="text-cyan-300 font-black">SHARES (CORE)</span>`
+              : `${pos.expiration} (${pos.dte} DTE)`;
+            const qtyDisplay = isEquity
+              ? `<span class="text-cyan-300 font-black">+${pos.contracts} sh</span>`
+              : `<span class="${pos.contracts > 0 ? 'text-purple-300' : 'text-amber-300'}">${pos.contracts > 0 ? '+' + pos.contracts : pos.contracts}</span>`;
+
             return `
-              <tr class="border-b border-slate-700">
+              <tr class="border-b border-slate-700 ${isEquity ? 'bg-cyan-950/20' : ''}">
                 <td class="py-3 px-3 text-sm font-bold text-slate-300">${pos.account || 'Manual'}</td>
-                <td class="py-3 px-3 text-lg font-black text-white">${pos.symbol} $${pos.strike} ${pos.option_type}</td>
-                <td class="py-3 px-3 font-mono text-cyan-300">${pos.expiration} (${pos.dte} DTE)</td>
-                <td class="py-3 px-3 font-mono ${pos.contracts > 0 ? 'text-purple-300' : 'text-amber-300'}">${pos.contracts > 0 ? '+' + pos.contracts : pos.contracts}</td>
+                <td class="py-3 px-3 text-lg font-black text-white">${posTitle}</td>
+                <td class="py-3 px-3 font-mono text-cyan-300">${expDisplay}</td>
+                <td class="py-3 px-3 font-mono">${qtyDisplay}</td>
                 <td class="py-3 px-3 font-mono text-yellow-300">$${pos.entry_premium.toFixed(2)} &rarr; $${pos.current_mid.toFixed(2)}</td>
                 <td class="py-3 px-3 font-mono font-black ${pos.pnl_dollars >= 0 ? 'text-emerald-300' : 'text-red-400'}">
                   $${pos.pnl_dollars >= 0 ? '+' : ''}${pos.pnl_dollars.toFixed(2)} (${pos.pnl_pct.toFixed(1)}%)
@@ -924,11 +1062,11 @@
                   <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase">
                     <th class="py-2 px-3">Account</th>
                     <th class="py-2 px-3">Position</th>
-                    <th class="py-2 px-3">Expiration / DTE</th>
+                    <th class="py-2 px-3">Expiration / Type</th>
                     <th class="py-2 px-3">Qty</th>
-                    <th class="py-2 px-3">Entry &rarr; Live Mid</th>
+                    <th class="py-2 px-3">Cost / Entry &rarr; Live</th>
                     <th class="py-2 px-3">Live P&amp;L</th>
-                    <th class="py-2 px-3">Dynamic Exit Status</th>
+                    <th class="py-2 px-3">Dynamic Status</th>
                     <th class="py-2 px-3 text-right">Action</th>
                   </tr>
                 </thead>
@@ -940,14 +1078,23 @@
       }
     }
 
-    // Initialize: Load positions in <5ms first, then sync full telemetry
+    // Initialize: Load positions & equity exposure in <10ms first, then sync full telemetry
     window.addEventListener('DOMContentLoaded', async () => {
       try {
-        const posRes = await fetch('/api/positions');
+        const [posRes, eqRes] = await Promise.all([
+          fetch('/api/positions'),
+          fetch('/api/equity'),
+        ]);
+        const payload = {};
         if (posRes.ok) {
           const positions = await posRes.json();
-          renderDashboardData({ manual_positions: positions, manual_positions_count: positions.length });
+          payload.manual_positions = positions;
+          payload.manual_positions_count = positions.length;
         }
+        if (eqRes.ok) {
+          payload.equity_exposure = await eqRes.json();
+        }
+        renderDashboardData(payload);
       } catch (e) {}
       manualSync();
       startTimer();

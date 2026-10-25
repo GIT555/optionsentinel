@@ -605,8 +605,13 @@ class GammaDangerSentinel:
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         for idx, (sym, strike, opt_type, exp_str, contracts, entry_prem) in enumerate(user_rows, start=1):
-            exp_date = datetime.datetime.strptime(exp_str, "%Y-%m-%d").date()
-            dte = (exp_date - today).days
+            if opt_type in ("EQUITY", "SHARES", "STOCK"):
+                continue
+            try:
+                exp_date = datetime.datetime.strptime(exp_str, "%Y-%m-%d").date()
+                dte = (exp_date - today).days
+            except Exception:
+                continue
 
             if contracts >= 0 or dte >= 14:
                 continue
@@ -680,6 +685,45 @@ class GammaDangerSentinel:
 
         results: List[Dict[str, Any]] = []
         for idx, (sym, strike, opt_type, exp_str, contracts, entry_prem, acct_label) in enumerate(user_rows, start=1):
+            if opt_type in ("EQUITY", "SHARES", "STOCK"):
+                if contracts < 100:
+                    continue
+                snap = self.scanner.snapshots.get(sym)
+                curr_mid = snap.spot if snap else (entry_prem if entry_prem > 0 else 100.0)
+                effective_entry = entry_prem if entry_prem > 0 else curr_mid
+                pnl = (curr_mid - effective_entry) * contracts
+                pnl_pct = ((curr_mid - effective_entry) / effective_entry) * 100.0 if effective_entry > 0 else 0.0
+
+                if snap and snap.rsi_14 < 35.0:
+                    status = f"EQUITY DIP ZONE: RSI {snap.rsi_14:.1f} (<35 DCA)"
+                elif snap and (snap.rsi_14 > 65.0 or snap.iv_rank > 40.0) and contracts >= 100:
+                    status = f"WRITE COVERED CALL (IVR {snap.iv_rank:.0f}% / RSI {snap.rsi_14:.0f})"
+                elif contracts >= 100:
+                    status = f"CORE EQUITY ({contracts // 100}x CC ELIGIBLE)"
+                else:
+                    status = "HOLD CORE EQUITY SHARES"
+
+                results.append({
+                    "index": idx,
+                    "position_id": f"EQ-{idx:02d}-{sym}",
+                    "account": acct_label,
+                    "symbol": sym,
+                    "strike": 0.0,
+                    "option_type": "EQUITY",
+                    "expiration": "SHARES",
+                    "dte": 0,
+                    "contracts": contracts,
+                    "entry_premium": round(effective_entry, 2),
+                    "current_mid": round(curr_mid, 2),
+                    "pnl_dollars": round(pnl, 2),
+                    "pnl_pct": round(pnl_pct, 1),
+                    "delta": 1.0,
+                    "gamma_danger": False,
+                    "profit_target_hit": False,
+                    "status": status,
+                })
+                continue
+
             try:
                 exp_date = datetime.datetime.strptime(exp_str, "%Y-%m-%d").date()
                 dte = (exp_date - today).days
@@ -688,6 +732,7 @@ class GammaDangerSentinel:
 
             matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte)
             curr_mid = matched.mid if matched else entry_prem
+            opt_delta = matched.delta_approx if matched else (0.85 if (opt_type == "CALL" and contracts > 0) else (-0.25 if opt_type == "PUT" else 0.30))
 
             if contracts < 0:
                 pnl = (entry_prem - curr_mid) * abs(contracts) * 100.0
@@ -723,19 +768,208 @@ class GammaDangerSentinel:
                 "current_mid": round(curr_mid, 2),
                 "pnl_dollars": round(pnl, 2),
                 "pnl_pct": round(pnl_pct, 1),
+                "delta": round(opt_delta, 3),
                 "gamma_danger": gamma_danger,
                 "profit_target_hit": profit_hit,
                 "status": status,
             })
         return results
 
-    def add_manual_position(self, symbol: str, strike: float, option_type: str, expiration: str, contracts: int, entry_premium: float):
+    def evaluate_equity_and_exposure(self, evaluated_positions: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+        """
+        Aggregates Equity Shares + Option Contracts for each held ticker to compute:
+        - Total Shares Held across accounts
+        - Long LEAP Calls (+100x synthetic share base)
+        - Short Calls sold against shares/LEAPs
+        - Short Puts (Wheel assignment obligation)
+        - True Net Share-Equivalent Delta Exposure (Shares + sum(contracts * 100 * delta))
+        - Uncovered Covered-Call / PMCC Capacity & Live 0.30-Delta Call recommendation
+        """
+        positions = evaluated_positions if evaluated_positions is not None else self.evaluate_all_manual_positions()
+        by_symbol: Dict[str, Dict[str, Any]] = {}
+
+        for pos in positions:
+            sym = pos["symbol"]
+            if sym not in by_symbol:
+                snap = self.scanner.snapshots.get(sym)
+                by_symbol[sym] = {
+                    "symbol": sym,
+                    "spot": snap.spot if snap else pos["current_mid"],
+                    "rsi_14": snap.rsi_14 if snap else 50.0,
+                    "iv_rank": snap.iv_rank if snap else 25.0,
+                    "accounts": set(),
+                    "shares": 0,
+                    "equity_market_value": 0.0,
+                    "equity_pnl_dollars": 0.0,
+                    "long_leap_calls": 0,
+                    "short_calls": 0,
+                    "short_puts": 0,
+                    "long_puts": 0,
+                    "option_delta_shares": 0.0,
+                    "options_pnl_dollars": 0.0,
+                }
+
+            entry = by_symbol[sym]
+            entry["accounts"].add(pos.get("account", "Manual"))
+            opt_type = pos["option_type"]
+            qty = int(pos["contracts"])
+
+            if opt_type == "EQUITY":
+                entry["shares"] += qty
+                entry["equity_market_value"] += qty * entry["spot"]
+                entry["equity_pnl_dollars"] += pos.get("pnl_dollars", 0.0)
+            else:
+                raw_delta = float(pos.get("delta", 0.5 if opt_type == "CALL" else -0.3))
+                # Ensure sign of contract delta aligns with Call (+) / Put (-)
+                signed_contract_delta = abs(raw_delta) if opt_type == "CALL" else -abs(raw_delta)
+                entry["option_delta_shares"] += qty * 100.0 * signed_contract_delta
+                entry["options_pnl_dollars"] += pos.get("pnl_dollars", 0.0)
+
+                if opt_type == "CALL":
+                    if qty > 0:
+                        entry["long_leap_calls"] += qty
+                    elif qty < 0:
+                        entry["short_calls"] += abs(qty)
+                elif opt_type == "PUT":
+                    if qty < 0:
+                        entry["short_puts"] += abs(qty)
+                    elif qty > 0:
+                        entry["long_puts"] += qty
+
+        exposure_rows: List[Dict[str, Any]] = []
+        for sym, item in by_symbol.items():
+            spot = item["spot"]
+            shares = item["shares"]
+            leaps = item["long_leap_calls"]
+            short_calls = item["short_calls"]
+            net_delta_shares = round(shares + item["option_delta_shares"], 1)
+            net_notional = round(net_delta_shares * spot, 2)
+
+            total_cov_lots = (shares // 100) + leaps
+            cc_capacity = max(0, total_cov_lots - short_calls)
+
+            # Live 0.30 Delta Covered Call / PMCC Strike lookup (zero extra API calls if cached)
+            cc_contract = f"{sym}-CC-0.30D"
+            cc_strike = round(spot * 1.05, 1)
+            cc_mid = round(spot * 0.012, 2)
+            cc_bid = round(cc_mid * 0.95, 2)
+            cc_ask = round(cc_mid * 1.05, 2)
+            cc_dte = 33
+            cc_exp = (datetime.date.today() + datetime.timedelta(days=33)).strftime("%Y-%m-%d")
+
+            chain = self.scanner.market_client.get_live_option_chain(sym, 28, 55)
+            calls = [c for c in chain if c.option_type == "CALL"]
+            if calls:
+                best_cc = min(calls, key=lambda c: abs(c.delta_approx - 0.30))
+                cc_contract = best_cc.contract_symbol
+                cc_strike = best_cc.strike
+                cc_mid = best_cc.mid
+                cc_bid = best_cc.bid
+                cc_ask = best_cc.ask
+                cc_dte = best_cc.dte
+                cc_exp = best_cc.expiration
+
+            cc_exit_50 = round(cc_mid * 0.50, 2)
+            cc_total_credit = round(max(1, cc_capacity) * cc_mid * 100.0, 2)
+
+            rsi = item["rsi_14"]
+            ivr = item["iv_rank"]
+            meta = WATCHLIST_MATRIX.get(sym)
+            is_lev = meta.is_leveraged if meta else (sym in ("TQQQ", "SOXL", "SPXL"))
+
+            if cc_capacity > 0 and (rsi > 60.0 or ivr > 35.0):
+                when_to_sell = f"SELL NOW (IVR {ivr:.0f}% / RSI {rsi:.0f} Qualified)"
+                directive = (
+                    f"SELL NOW: STO {cc_capacity}x ${cc_strike} Call exp {cc_exp} ({cc_dte} DTE) "
+                    f"@ ${cc_mid:.2f} (+${cc_total_credit:,.0f} credit) | Exit @ ${cc_exit_50:.2f} (50%) or 14 DTE"
+                )
+            elif rsi < 35.0:
+                when_to_sell = f"WAIT FOR BOUNCE (RSI {rsi:.1f} < 35 Oversold -> Wait for RSI > 45)"
+                if is_lev:
+                    directive = (
+                        f"WAIT FOR RSI > 45 BOUNCE: Then STO {max(1, cc_capacity)}x ${cc_strike} Call exp {cc_exp} "
+                        f"({cc_dte} DTE) @ target >=${cc_mid:.2f} | Now: Hold Shares / Sell 0.20Δ CSP"
+                    )
+                else:
+                    directive = (
+                        f"WAIT FOR RSI > 45 BOUNCE: Then STO {max(1, cc_capacity)}x ${cc_strike} Call exp {cc_exp} "
+                        f"({cc_dte} DTE) @ target >=${cc_mid:.2f} | Now: Accumulate Shares / 0.85Δ LEAP"
+                    )
+            elif cc_capacity > 0:
+                when_to_sell = f"SELL ON GREEN DAY / NOW (RSI {rsi:.0f} Neutral, IVR {ivr:.0f}%)"
+                directive = (
+                    f"READY: STO {cc_capacity}x ${cc_strike} Call exp {cc_exp} ({cc_dte} DTE) "
+                    f"@ ${cc_mid:.2f} (+${cc_total_credit:,.0f} credit) | Exit @ ${cc_exit_50:.2f} (50%) or 14 DTE"
+                )
+            else:
+                when_to_sell = "ALL LOTS COVERED (Wait for 50% Profit or 14 DTE Roll)"
+                directive = (
+                    f"FULLY COVERED: Next Roll Target ${cc_strike} Call exp {cc_exp} ({cc_dte} DTE) "
+                    f"@ ${cc_mid:.2f} (BTC @ ${cc_exit_50:.2f} / 50% profit)"
+                )
+
+            exposure_rows.append({
+                "symbol": sym,
+                "accounts": ", ".join(sorted(item["accounts"])),
+                "spot": round(spot, 2),
+                "rsi_14": round(rsi, 1),
+                "iv_rank": round(ivr, 1),
+                "shares": shares,
+                "equity_market_value": round(item["equity_market_value"], 2),
+                "long_leap_calls": leaps,
+                "short_calls": short_calls,
+                "short_puts": item["short_puts"],
+                "long_puts": item["long_puts"],
+                "option_delta_shares": round(item["option_delta_shares"], 1),
+                "net_delta_shares": net_delta_shares,
+                "net_notional_exposure": net_notional,
+                "covered_call_capacity": cc_capacity,
+                "cc_contract": cc_contract,
+                "cc_strike": cc_strike,
+                "cc_expiration": cc_exp,
+                "cc_dte": cc_dte,
+                "cc_bid": round(cc_bid, 2),
+                "cc_ask": round(cc_ask, 2),
+                "cc_mid": round(cc_mid, 2),
+                "cc_exit_target_50": cc_exit_50,
+                "cc_total_credit": cc_total_credit,
+                "when_to_sell": when_to_sell,
+                "total_pnl_dollars": round(item["equity_pnl_dollars"] + item["options_pnl_dollars"], 2),
+                "directive": directive,
+            })
+
+        exposure_rows.sort(key=lambda r: abs(r["net_notional_exposure"]), reverse=True)
+        return exposure_rows
+
+    def add_manual_position(
+        self,
+        symbol: str,
+        strike: float,
+        option_type: str,
+        expiration: str,
+        contracts: int,
+        entry_premium: float,
+        account: str = "Manual",
+    ):
+        opt_clean = option_type.strip().upper()
+        if opt_clean in ("EQUITY", "SHARES", "STOCK"):
+            opt_clean = "EQUITY"
+            strike_val = 0.0
+            exp_clean = "EQUITY"
+        else:
+            strike_val = float(strike)
+            exp_clean = expiration.strip()
+
+        acct_clean = account.strip() if account and account.strip() else "Manual"
         with self._lock:
             file_exists = os.path.exists(self.positions_file)
             with open(self.positions_file, "a", encoding="utf-8", newline="") as f:
                 if not file_exists:
-                    f.write("symbol,strike,option_type,expiration,contracts,entry_premium\n")
-                f.write(f"{symbol.strip().upper()},{float(strike)},{option_type.strip().upper()},{expiration.strip()},{int(contracts)},{float(entry_premium)}\n")
+                    f.write("symbol,strike,option_type,expiration,contracts,entry_premium,account\n")
+                f.write(
+                    f"{symbol.strip().upper()},{strike_val},{opt_clean},{exp_clean},"
+                    f"{int(contracts)},{float(entry_premium):.2f},{acct_clean}\n"
+                )
 
     def delete_manual_position(self, index_to_remove: int):
         if not os.path.exists(self.positions_file):
@@ -813,6 +1047,8 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_response(self.sentinel.audit_manual_positions(emit_stderr=False))
         elif path == "/api/positions":
             self._send_json_response(self.sentinel.evaluate_all_manual_positions())
+        elif path == "/api/equity":
+            self._send_json_response(self.sentinel.evaluate_equity_and_exposure())
         elif path in ["/", "/index.html"]:
             self._serve_ui_dashboard()
         else:
@@ -838,22 +1074,35 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
                 expiration=body.get("expiration", "2026-11-27"),
                 contracts=int(body.get("contracts", -1)),
                 entry_premium=float(body.get("entry_premium", 1.0)),
+                account=body.get("account", "Manual"),
             )
-            self._send_json_response({"status": "success", "positions": self.sentinel.evaluate_all_manual_positions()})
+            positions = self.sentinel.evaluate_all_manual_positions()
+            self._send_json_response({
+                "status": "success",
+                "positions": positions,
+                "equity_exposure": self.sentinel.evaluate_equity_and_exposure(positions),
+            })
         elif path == "/api/positions/delete":
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
             self.sentinel.delete_manual_position(int(body.get("index", 0)))
-            self._send_json_response({"status": "success", "positions": self.sentinel.evaluate_all_manual_positions()})
+            positions = self.sentinel.evaluate_all_manual_positions()
+            self._send_json_response({
+                "status": "success",
+                "positions": positions,
+                "equity_exposure": self.sentinel.evaluate_equity_and_exposure(positions),
+            })
         elif path == "/api/positions/import-fidelity":
             try:
                 from convert_fidelity_positions import convert_latest_fidelity_to_positions
                 src_csv, converted = convert_latest_fidelity_to_positions()
+                positions = self.sentinel.evaluate_all_manual_positions()
                 self._send_json_response({
                     "status": "success",
                     "source_file": os.path.basename(src_csv),
                     "imported_count": len(converted),
-                    "positions": self.sentinel.evaluate_all_manual_positions(),
+                    "positions": positions,
+                    "equity_exposure": self.sentinel.evaluate_equity_and_exposure(positions),
                 })
             except Exception as e:
                 self._send_json_response({"status": "error", "message": str(e)})
@@ -913,6 +1162,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         leap_puts = self.scanner.generate_leap_put_matrix(all_tickers=True)
         manual_positions = self.sentinel.evaluate_all_manual_positions()
+        equity_exposure = self.sentinel.evaluate_equity_and_exposure(manual_positions)
         summary = {
             "timestamp": datetime.datetime.now().isoformat(),
             "feed_mode": "100% LIVE EXCHANGE FEED (ZERO SIMULATION)",
@@ -922,6 +1172,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "leap_put_opportunities": sum(1 for p in leap_puts if p.get("is_qualified")),
             "gamma_danger_count": len(alerts),
             "manual_positions_count": len(manual_positions),
+            "equity_tickers_count": len(equity_exposure),
             "watchlist": watchlist,
             "wheel_recommendations": wheel,
             "leap_recommendations": leap,
@@ -929,6 +1180,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "leveraged_etfs_guidance": leveraged_etfs,
             "gamma_alerts": alerts,
             "manual_positions": manual_positions,
+            "equity_exposure": equity_exposure,
         }
         self._send_json_response(summary)
 

@@ -72,6 +72,14 @@ class TestUniverseConfiguration(unittest.TestCase):
     def test_asset_config_alignment(self):
         self.assertEqual(set(ASSET_CONFIG.keys()), set(WATCHLIST_MATRIX.keys()))
 
+    def test_fidelity_converter_equity_and_options(self):
+        from convert_fidelity_positions import convert_latest_fidelity_to_positions
+        src_csv, positions = convert_latest_fidelity_to_positions()
+        self.assertTrue(len(positions) > 0)
+        types = {p.option_type for p in positions}
+        self.assertIn("EQUITY", types)
+        self.assertTrue("PUT" in types or "CALL" in types)
+
 
 if __name__ == "__main__":
     unittest.main()
