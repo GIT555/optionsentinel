@@ -12,10 +12,14 @@ from __future__ import annotations
 
 import concurrent.futures
 import datetime
+import json
 import math
+import os
+import sqlite3
 import sys
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
@@ -28,6 +32,11 @@ try:
     import requests
 except ImportError:
     requests = None
+
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
 
 
 TICKER_SYMBOL_MAP: Dict[str, str] = {
@@ -84,8 +93,106 @@ class LiveOptionContract:
     in_the_money: bool
 
 
+class TokenBucketRateLimiter:
+    """
+    Thread-safe token-bucket rate limiter (AGENTS.md Rule #2).
+    Prevents flooding free API endpoints (e.g., max 8 requests/min for Twelve Data).
+    """
+
+    def __init__(self, max_calls: int, period_seconds: float, min_interval_sec: float = 0.05):
+        self.max_calls = max_calls
+        self.period = period_seconds
+        self.min_interval = min_interval_sec
+        self._timestamps: List[float] = []
+        self._lock = threading.Lock()
+
+    def acquire(self):
+        with self._lock:
+            now = time.time()
+            self._timestamps = [t for t in self._timestamps if (now - t) < self.period]
+            if len(self._timestamps) >= self.max_calls:
+                sleep_for = self.period - (now - self._timestamps[0]) + 0.05
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+                now = time.time()
+                self._timestamps = [t for t in self._timestamps if (now - t) < self.period]
+            elif self._timestamps and (now - self._timestamps[-1]) < self.min_interval:
+                time.sleep(self.min_interval)
+                now = time.time()
+            self._timestamps.append(now)
+
+
+class SQLiteMarketCache:
+    """
+    Persistent local SQLite + JSON cache for historical & live market data (AGENTS.md Rule #3).
+    Minimizes repetitive API calls and provides resilience if rate limits are hit.
+    """
+
+    def __init__(self, db_path: Optional[str] = None):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.db_path = db_path or os.path.join(base_dir, "market_cache.db")
+        self._lock = threading.Lock()
+        self._init_db()
+
+    def _init_db(self):
+        try:
+            with self._lock, sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS kv_cache (
+                        cache_key TEXT PRIMARY KEY,
+                        updated_at REAL NOT NULL,
+                        payload_json TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.commit()
+        except Exception as e:
+            sys.stderr.write(f"[CACHE-INIT WARNING]: SQLite cache initialization fallback: {e}\n")
+
+    def get(self, key: str, max_age_seconds: Optional[float] = None) -> Optional[Any]:
+        try:
+            with self._lock, sqlite3.connect(self.db_path) as conn:
+                row = conn.execute(
+                    "SELECT updated_at, payload_json FROM kv_cache WHERE cache_key = ?", (key,)
+                ).fetchone()
+                if not row:
+                    return None
+                updated_at, payload_json = row
+                if max_age_seconds is not None and (time.time() - updated_at) > max_age_seconds:
+                    return None
+                return json.loads(payload_json)
+        except Exception:
+            return None
+
+    def set(self, key: str, value: Any):
+        try:
+            payload_json = json.dumps(value)
+            with self._lock, sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO kv_cache (cache_key, updated_at, payload_json)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(cache_key) DO UPDATE SET
+                        updated_at = excluded.updated_at,
+                        payload_json = excluded.payload_json
+                    """,
+                    (key, time.time(), payload_json),
+                )
+                conn.commit()
+        except Exception as e:
+            sys.stderr.write(f"[CACHE-WRITE WARNING]: Unable to persist {key}: {e}\n")
+
+
 class LiveMarketClient:
-    """Client for querying real-time market data and live options chains in parallel."""
+    """
+    Client for querying real-time market data and live options chains.
+    Follows AGENTS.md critical rules:
+    1. Zero Paid Dependencies (Yahoo Finance -> yfinance -> Twelve Data free tier)
+    2. Built-in Token-Bucket Rate Limiting
+    3. Local SQLite Caching (market_cache.db)
+    4. Full try-except Error Resilience with descriptive fallback messages
+    """
 
     def __init__(self, cache_ttl_seconds: int = 60):
         self.cache_ttl = cache_ttl_seconds
@@ -94,6 +201,10 @@ class LiveMarketClient:
         self._crumb_time: float = 0
         self._cache_quotes: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._cache_chains: Dict[str, Tuple[float, List[LiveOptionContract]]] = {}
+        self.sqlite_cache = SQLiteMarketCache()
+        self.yahoo_limiter = TokenBucketRateLimiter(max_calls=30, period_seconds=60.0, min_interval_sec=0.05)
+        self.twelve_data_limiter = TokenBucketRateLimiter(max_calls=8, period_seconds=60.0, min_interval_sec=0.25)
+        self.twelve_data_api_key = os.environ.get("TWELVE_DATA_API_KEY", "").strip()
 
     def _get_session(self) -> requests.Session:
         if self._session is None:
@@ -111,14 +222,15 @@ class LiveMarketClient:
 
         session = self._get_session()
         try:
+            self.yahoo_limiter.acquire()
             session.get("https://fc.yahoo.com", timeout=6)
             crumb_resp = session.get("https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=6)
             if crumb_resp.status_code == 200 and crumb_resp.text and "error" not in crumb_resp.text.lower():
                 self._crumb = crumb_resp.text.strip()
                 self._crumb_time = now
                 return self._crumb
-        except Exception:
-            pass
+        except Exception as e:
+            sys.stderr.write(f"[RATE-LIMIT / CRUMB NOTICE]: Crumb fetch fallback triggered: {e}\n")
         return None
 
     def get_live_chart_data(self, symbol: str) -> Optional[Dict[str, Any]]:
@@ -130,19 +242,85 @@ class LiveMarketClient:
             if (now - cached_time) < self.cache_ttl:
                 return cached_data
 
+        # Check fresh SQLite cache first
+        sql_cached = self.sqlite_cache.get(f"CHART_{yahoo_sym}", max_age_seconds=self.cache_ttl)
+        if sql_cached:
+            self._cache_quotes[yahoo_sym] = (now, sql_cached)
+            return sql_cached
+
+        # Provider 1: Yahoo Finance v8 Chart Endpoint
         session = self._get_session()
         url = f"https://query2.finance.yahoo.com/v8/finance/chart/{yahoo_sym}?range=1y&interval=1d"
 
         try:
+            self.yahoo_limiter.acquire()
             r = session.get(url, timeout=7)
             if r.status_code == 200:
                 data = r.json()
                 if "chart" in data and data["chart"]["result"]:
                     result = data["chart"]["result"][0]
                     self._cache_quotes[yahoo_sym] = (now, result)
+                    self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
                     return result
-        except Exception:
-            pass
+            elif r.status_code == 429:
+                sys.stderr.write(f"[RATE-LIMIT WARNING]: Yahoo Finance 429 on {symbol}; switching to fallback provider.\n")
+        except Exception as e:
+            sys.stderr.write(f"[API FALLBACK]: Primary chart request for {symbol} failed ({e}); trying fallback.\n")
+
+        # Provider 2: yfinance library fallback
+        if yf is not None:
+            try:
+                self.yahoo_limiter.acquire()
+                hist = yf.Ticker(yahoo_sym).history(period="1y", interval="1d")
+                if hist is not None and not hist.empty and "Close" in hist:
+                    closes = [float(x) for x in hist["Close"].dropna().tolist()]
+                    if closes:
+                        result = {
+                            "meta": {
+                                "regularMarketPrice": closes[-1],
+                                "previousClose": closes[-2] if len(closes) > 1 else closes[-1],
+                            },
+                            "indicators": {"quote": [{"close": closes}]},
+                        }
+                        self._cache_quotes[yahoo_sym] = (now, result)
+                        self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
+                        return result
+            except Exception as e:
+                sys.stderr.write(f"[API FALLBACK]: yfinance fallback for {symbol} failed ({e}).\n")
+
+        # Provider 3: Twelve Data Free Tier API (Max 8 req/min enforced)
+        if self.twelve_data_api_key:
+            try:
+                self.twelve_data_limiter.acquire()
+                td_url = (
+                    f"https://api.twelvedata.com/time_series?symbol={symbol.upper()}"
+                    f"&interval=1day&outputsize=252&apikey={self.twelve_data_api_key}"
+                )
+                r_td = session.get(td_url, timeout=7)
+                if r_td.status_code == 200:
+                    td_json = r_td.json()
+                    values = td_json.get("values", [])
+                    if values:
+                        closes = [float(v["close"]) for v in reversed(values) if "close" in v]
+                        result = {
+                            "meta": {
+                                "regularMarketPrice": closes[-1],
+                                "previousClose": closes[-2] if len(closes) > 1 else closes[-1],
+                            },
+                            "indicators": {"quote": [{"close": closes}]},
+                        }
+                        self._cache_quotes[yahoo_sym] = (now, result)
+                        self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
+                        return result
+            except Exception as e:
+                sys.stderr.write(f"[API FALLBACK]: Twelve Data fallback for {symbol} failed ({e}).\n")
+
+        # Final Resilient Fallback: Local SQLite Last-Known Real Market Data
+        stale_cached = self.sqlite_cache.get(f"CHART_{yahoo_sym}", max_age_seconds=None)
+        if stale_cached:
+            sys.stderr.write(f"[CACHE FALLBACK]: Serving persisted SQLite market data for {symbol}.\n")
+            return stale_cached
+
         return None
 
     def get_live_ticker_snapshot(self, symbol: str) -> LiveTickerSnapshot:
@@ -150,6 +328,10 @@ class LiveMarketClient:
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         if not chart_data:
+            cached_snap = self.sqlite_cache.get(f"SNAP_{symbol.upper()}", max_age_seconds=None)
+            if cached_snap:
+                sys.stderr.write(f"[CACHE FALLBACK]: Using cached snapshot for {symbol}.\n")
+                return LiveTickerSnapshot(**cached_snap)
             raise RuntimeError(f"Unable to retrieve live market quote for {symbol} from exchange feed.")
 
         meta = chart_data.get("meta", {})
@@ -165,7 +347,7 @@ class LiveMarketClient:
         hv_30d = self._calculate_annualized_volatility(clean_closes, 30)
         iv_current, iv_rank, iv_percentile = self._calculate_volatility_metrics(clean_closes, hv_30d)
 
-        return LiveTickerSnapshot(
+        snap = LiveTickerSnapshot(
             symbol=symbol,
             yahoo_symbol=TICKER_SYMBOL_MAP.get(symbol, symbol),
             spot=round(spot, 2),
@@ -179,11 +361,13 @@ class LiveMarketClient:
             timestamp=now_str,
             is_live=True,
         )
+        self.sqlite_cache.set(f"SNAP_{symbol.upper()}", asdict(snap))
+        return snap
 
     def get_all_snapshots_parallel(self, symbols: List[str]) -> Dict[str, LiveTickerSnapshot]:
-        """Fetch all snapshots concurrently for ultra-low latency."""
+        """Fetch all snapshots concurrently with rate-limit protection (max_workers=4)."""
         results: Dict[str, LiveTickerSnapshot] = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, len(symbols))) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(symbols))) as executor:
             future_to_sym = {executor.submit(self.get_live_ticker_snapshot, sym): sym for sym in symbols}
             for future in concurrent.futures.as_completed(future_to_sym):
                 sym = future_to_sym[future]
@@ -204,6 +388,12 @@ class LiveMarketClient:
             if (now - t_cached) < self.cache_ttl:
                 return data
 
+        sql_chain = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=self.cache_ttl)
+        if sql_chain:
+            restored = [LiveOptionContract(**c) for c in sql_chain]
+            self._cache_chains[cache_key] = (now, restored)
+            return restored
+
         yahoo_sym = TICKER_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
         session = self._get_session()
         crumb = self._get_crumb()
@@ -216,9 +406,11 @@ class LiveMarketClient:
             url += f"?crumb={crumb}"
 
         try:
+            self.yahoo_limiter.acquire()
             r = session.get(url, timeout=7)
             if r.status_code != 200:
-                return []
+                stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+                return [LiveOptionContract(**c) for c in stale] if stale else []
 
             data = r.json()
             chain_res = data.get("optionChain", {}).get("result", [])
@@ -246,6 +438,7 @@ class LiveMarketClient:
                 if crumb:
                     exp_url += f"&crumb={crumb}"
 
+                self.yahoo_limiter.acquire()
                 resp = session.get(exp_url, timeout=7)
                 if resp.status_code != 200:
                     continue
@@ -263,10 +456,15 @@ class LiveMarketClient:
                     if c:
                         contracts.append(c)
 
-            self._cache_chains[cache_key] = (now, contracts)
+            if contracts:
+                self._cache_chains[cache_key] = (now, contracts)
+                self.sqlite_cache.set(f"CHAIN_{cache_key}", [asdict(c) for c in contracts])
 
-        except Exception:
-            pass
+        except Exception as e:
+            sys.stderr.write(f"[OPTION-CHAIN FALLBACK]: {symbol} option chain fetch warning ({e}); checking cache.\n")
+            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+            if stale:
+                return [LiveOptionContract(**c) for c in stale]
 
         return contracts
 
@@ -282,6 +480,12 @@ class LiveMarketClient:
             if (now - t_cached) < self.cache_ttl:
                 return [c for c in data if c.option_type == opt_filter]
 
+        sql_leap = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=self.cache_ttl)
+        if sql_leap:
+            restored = [LiveOptionContract(**c) for c in sql_leap]
+            self._cache_chains[cache_key] = (now, restored)
+            return [c for c in restored if c.option_type == opt_filter]
+
         yahoo_sym = TICKER_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
         session = self._get_session()
         crumb = self._get_crumb()
@@ -294,9 +498,11 @@ class LiveMarketClient:
             url += f"?crumb={crumb}"
 
         try:
+            self.yahoo_limiter.acquire()
             r = session.get(url, timeout=7)
             if r.status_code != 200:
-                return []
+                stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+                return [LiveOptionContract(**c) for c in stale if c.get("option_type") == opt_filter] if stale else []
 
             data = r.json()
             chain_res = data.get("optionChain", {}).get("result", [])
@@ -323,6 +529,7 @@ class LiveMarketClient:
             if crumb:
                 exp_url += f"&crumb={crumb}"
 
+            self.yahoo_limiter.acquire()
             resp = session.get(exp_url, timeout=7)
             if resp.status_code == 200:
                 exp_data = resp.json().get("optionChain", {}).get("result", [{}])[0]
@@ -336,10 +543,15 @@ class LiveMarketClient:
                     if c:
                         contracts.append(c)
 
-            self._cache_chains[cache_key] = (now, contracts)
+            if contracts:
+                self._cache_chains[cache_key] = (now, contracts)
+                self.sqlite_cache.set(f"CHAIN_{cache_key}", [asdict(c) for c in contracts])
 
-        except Exception:
-            pass
+        except Exception as e:
+            sys.stderr.write(f"[LEAP-CHAIN FALLBACK]: {symbol} LEAP chain fetch warning ({e}); checking cache.\n")
+            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+            if stale:
+                return [LiveOptionContract(**c) for c in stale if c.get("option_type") == opt_filter]
 
         return [c for c in contracts if c.option_type == opt_filter]
 
