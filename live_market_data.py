@@ -199,6 +199,7 @@ class LiveMarketClient:
         self._session: Optional[requests.Session] = None
         self._crumb: Optional[str] = None
         self._crumb_time: float = 0
+        self._network_backoff_until: float = 0
         self._cache_quotes: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._cache_chains: Dict[str, Tuple[float, List[LiveOptionContract]]] = {}
         self.sqlite_cache = SQLiteMarketCache()
@@ -217,19 +218,23 @@ class LiveMarketClient:
 
     def _get_crumb(self) -> Optional[str]:
         now = time.time()
-        if self._crumb and (now - self._crumb_time) < 1800:
+        if (now - self._crumb_time) < 1800:
             return self._crumb
+
+        self._crumb_time = now
+        if now < self._network_backoff_until:
+            return None
 
         session = self._get_session()
         try:
             self.yahoo_limiter.acquire()
-            session.get("https://fc.yahoo.com", timeout=6)
-            crumb_resp = session.get("https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=6)
+            session.get("https://fc.yahoo.com", timeout=3)
+            crumb_resp = session.get("https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=3)
             if crumb_resp.status_code == 200 and crumb_resp.text and "error" not in crumb_resp.text.lower():
                 self._crumb = crumb_resp.text.strip()
-                self._crumb_time = now
                 return self._crumb
         except Exception as e:
+            self._network_backoff_until = time.time() + 60.0
             sys.stderr.write(f"[RATE-LIMIT / CRUMB NOTICE]: Crumb fetch fallback triggered: {e}\n")
         return None
 
@@ -248,13 +253,20 @@ class LiveMarketClient:
             self._cache_quotes[yahoo_sym] = (now, sql_cached)
             return sql_cached
 
+        # Circuit breaker: if network/API is currently in backoff, serve persisted SQLite cache immediately
+        if now < self._network_backoff_until:
+            stale_cached = self.sqlite_cache.get(f"CHART_{yahoo_sym}", max_age_seconds=None)
+            if stale_cached:
+                self._cache_quotes[yahoo_sym] = (now, stale_cached)
+                return stale_cached
+
         # Provider 1: Yahoo Finance v8 Chart Endpoint
         session = self._get_session()
         url = f"https://query2.finance.yahoo.com/v8/finance/chart/{yahoo_sym}?range=1y&interval=1d"
 
         try:
             self.yahoo_limiter.acquire()
-            r = session.get(url, timeout=7)
+            r = session.get(url, timeout=3)
             if r.status_code == 200:
                 data = r.json()
                 if "chart" in data and data["chart"]["result"]:
@@ -263,32 +275,19 @@ class LiveMarketClient:
                     self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
                     return result
             elif r.status_code == 429:
+                self._network_backoff_until = time.time() + 60.0
                 sys.stderr.write(f"[RATE-LIMIT WARNING]: Yahoo Finance 429 on {symbol}; switching to fallback provider.\n")
         except Exception as e:
-            sys.stderr.write(f"[API FALLBACK]: Primary chart request for {symbol} failed ({e}); trying fallback.\n")
+            self._network_backoff_until = time.time() + 60.0
+            sys.stderr.write(f"[API FALLBACK]: Primary chart request for {symbol} failed ({e}); checking cache/fallback.\n")
 
-        # Provider 2: yfinance library fallback
-        if yf is not None:
-            try:
-                self.yahoo_limiter.acquire()
-                hist = yf.Ticker(yahoo_sym).history(period="1y", interval="1d")
-                if hist is not None and not hist.empty and "Close" in hist:
-                    closes = [float(x) for x in hist["Close"].dropna().tolist()]
-                    if closes:
-                        result = {
-                            "meta": {
-                                "regularMarketPrice": closes[-1],
-                                "previousClose": closes[-2] if len(closes) > 1 else closes[-1],
-                            },
-                            "indicators": {"quote": [{"close": closes}]},
-                        }
-                        self._cache_quotes[yahoo_sym] = (now, result)
-                        self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
-                        return result
-            except Exception as e:
-                sys.stderr.write(f"[API FALLBACK]: yfinance fallback for {symbol} failed ({e}).\n")
+        # Fast Resilient Fallback: Local SQLite Last-Known Real Market Data (avoids slow network retries)
+        stale_cached = self.sqlite_cache.get(f"CHART_{yahoo_sym}", max_age_seconds=None)
+        if stale_cached:
+            self._cache_quotes[yahoo_sym] = (now, stale_cached)
+            return stale_cached
 
-        # Provider 3: Twelve Data Free Tier API (Max 8 req/min enforced)
+        # Provider 2: Twelve Data Free Tier API (Max 8 req/min enforced)
         if self.twelve_data_api_key:
             try:
                 self.twelve_data_limiter.acquire()
@@ -296,7 +295,7 @@ class LiveMarketClient:
                     f"https://api.twelvedata.com/time_series?symbol={symbol.upper()}"
                     f"&interval=1day&outputsize=252&apikey={self.twelve_data_api_key}"
                 )
-                r_td = session.get(td_url, timeout=7)
+                r_td = session.get(td_url, timeout=4)
                 if r_td.status_code == 200:
                     td_json = r_td.json()
                     values = td_json.get("values", [])
@@ -315,11 +314,26 @@ class LiveMarketClient:
             except Exception as e:
                 sys.stderr.write(f"[API FALLBACK]: Twelve Data fallback for {symbol} failed ({e}).\n")
 
-        # Final Resilient Fallback: Local SQLite Last-Known Real Market Data
-        stale_cached = self.sqlite_cache.get(f"CHART_{yahoo_sym}", max_age_seconds=None)
-        if stale_cached:
-            sys.stderr.write(f"[CACHE FALLBACK]: Serving persisted SQLite market data for {symbol}.\n")
-            return stale_cached
+        # Provider 3: yfinance library fallback (only if SQLite cache has no entry for this ticker)
+        if yf is not None:
+            try:
+                self.yahoo_limiter.acquire()
+                hist = yf.Ticker(yahoo_sym).history(period="1y", interval="1d", timeout=4)
+                if hist is not None and not hist.empty and "Close" in hist:
+                    closes = [float(x) for x in hist["Close"].dropna().tolist()]
+                    if closes:
+                        result = {
+                            "meta": {
+                                "regularMarketPrice": closes[-1],
+                                "previousClose": closes[-2] if len(closes) > 1 else closes[-1],
+                            },
+                            "indicators": {"quote": [{"close": closes}]},
+                        }
+                        self._cache_quotes[yahoo_sym] = (now, result)
+                        self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
+                        return result
+            except Exception as e:
+                sys.stderr.write(f"[API FALLBACK]: yfinance fallback for {symbol} failed ({e}).\n")
 
         return None
 
@@ -393,6 +407,14 @@ class LiveMarketClient:
             restored = [LiveOptionContract(**c) for c in sql_chain]
             self._cache_chains[cache_key] = (now, restored)
             return restored
+
+        if now < self._network_backoff_until:
+            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+            if stale:
+                restored = [LiveOptionContract(**c) for c in stale]
+                self._cache_chains[cache_key] = (now, restored)
+                return restored
+            return []
 
         yahoo_sym = TICKER_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
         session = self._get_session()
@@ -509,6 +531,14 @@ class LiveMarketClient:
             restored = [LiveOptionContract(**c) for c in sql_leap]
             self._cache_chains[cache_key] = (now, restored)
             return [c for c in restored if c.option_type == opt_filter]
+
+        if now < self._network_backoff_until:
+            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+            if stale:
+                restored = [LiveOptionContract(**c) for c in stale]
+                self._cache_chains[cache_key] = (now, restored)
+                return [c for c in restored if c.option_type == opt_filter]
+            return []
 
         yahoo_sym = TICKER_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
         session = self._get_session()

@@ -865,6 +865,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Connection", "close")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
@@ -946,6 +947,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
         payload = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Connection", "close")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
@@ -1004,6 +1006,8 @@ def main():
 
         class ReusableTCPServer(socketserver.ThreadingTCPServer):
             allow_reuse_address = True
+            daemon_threads = True
+            block_on_close = False
 
         print(f"\n================================================================================")
         print(f"🚀 Live Option Sentinel Dashboard Active (All Devices Mode):")
@@ -1011,6 +1015,7 @@ def main():
         print(f"   📱 Phone / iPad / Wi-Fi: http://{lan_ip}:{port}/")
         print(f"   📡 Feed Mode           : 100% REAL LIVE MARKET DATA (ZERO SIMULATION)")
         print(f"   📂 Manual Positions    : positions.csv (Manageable from any browser)")
+        print(f"   🛑 Stop Server         : Press Ctrl+C to exit immediately")
         print(f"================================================================================")
         print("API Endpoints:")
         print(f"  - http://{lan_ip}:{port}/api/summary")
@@ -1018,11 +1023,15 @@ def main():
         print(f"  - http://{lan_ip}:{port}/api/wheel")
         print(f"  - http://{lan_ip}:{port}/api/leap\n")
 
+        httpd = ReusableTCPServer(server_address, SentinelRequestHandler)
         try:
-            with ReusableTCPServer(server_address, SentinelRequestHandler) as httpd:
-                httpd.serve_forever()
+            httpd.serve_forever(poll_interval=0.25)
         except KeyboardInterrupt:
             print("\nOption Sentinel stopped.")
+        finally:
+            auto_syncer._running = False
+            httpd.server_close()
+            os._exit(0)
 
 
 if __name__ == "__main__":
