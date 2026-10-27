@@ -263,21 +263,8 @@ class SchwabReadOnlyClient:
             except Exception as e:
                 sys.stderr.write(f"[SCHWAB-TOKEN WARNING]: Could not write schwab_tokens.json: {e}\n")
 
-    def save_credentials(self, app_key: str, app_secret: str, redirect_uri: str = "https://127.0.0.1"):
-        """Saves SCHWAB_APP_KEY and SCHWAB_APP_SECRET to local git-ignored .env file."""
-        self.app_key = app_key.strip()
-        self.app_secret = app_secret.strip()
-        self.redirect_uri = (redirect_uri or self.redirect_uri or "https://127.0.0.1").strip()
-        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-        existing = _load_local_dotenv()
-        existing["SCHWAB_APP_KEY"] = self.app_key
-        existing["SCHWAB_APP_SECRET"] = self.app_secret
-        existing["SCHWAB_REDIRECT_URI"] = self.redirect_uri
-        with open(env_path, "w", encoding="utf-8") as f:
-            for k, v in existing.items():
-                f.write(f"{k}={v}\n")
-
     def get_auth_url(self) -> str:
+        self._sync_env_credentials()
         if not self.app_key:
             return ""
         encoded_redirect = urllib.parse.quote(self.redirect_uri, safe=":/")
@@ -298,7 +285,7 @@ class SchwabReadOnlyClient:
         days_left = int(remaining_sec // 86400)
         hours_left = int((remaining_sec % 86400) // 3600)
         if not configured:
-            status_label = "Not Configured (Using Yahoo/SQLite)"
+            status_label = "Set SCHWAB_APP_KEY & SCHWAB_APP_SECRET in .env"
         elif connected:
             status_label = f"Schwab ToS Connected ({days_left}d {hours_left}h left)"
         else:
@@ -308,8 +295,6 @@ class SchwabReadOnlyClient:
             "connected": connected,
             "days_remaining": days_left,
             "hours_remaining": hours_left,
-            "redirect_uri": self.redirect_uri,
-            "auth_url": self.get_auth_url(),
             "status_label": status_label,
             "mode": "100% READ-ONLY (GET Market Data Only)",
         }

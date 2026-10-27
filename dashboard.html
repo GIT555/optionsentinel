@@ -88,7 +88,7 @@
             <span>Schwab / Thinkorswim 7-Day Read-Only OAuth (Same as OptionAlpha)</span>
           </h3>
           <p class="text-xs md:text-sm font-bold text-slate-300 mt-1">
-            100% Safe &amp; Strictly <strong class="text-emerald-300">Read-Only (`GET` Market Data Only)</strong>. Zero order placement code exists. Tokens stay locally in git-ignored <code class="text-yellow-300">schwab_tokens.json</code>.
+            100% Safe &amp; Strictly <strong class="text-emerald-300">Read-Only (`GET` Market Data Only)</strong>. App Key &amp; Secret stay strictly in your local <code class="text-yellow-300">.env</code> (never entered or exposed in HTML).
           </p>
         </div>
         <span id="schwabDrawerStatusBadge" class="px-3 py-1 rounded-lg bg-slate-800 text-yellow-300 font-black text-xs border border-slate-600">
@@ -96,32 +96,24 @@
         </span>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
         <div>
-          <label class="block text-xs font-black uppercase text-slate-300 mb-1">1. Schwab App Key (Client ID)</label>
-          <input id="schwabAppKey" type="text" placeholder="Paste App Key from developer.schwab.com" class="w-full bg-slate-900 border-2 border-slate-600 rounded-xl px-3 py-2 text-white font-mono text-sm">
-        </div>
-        <div>
-          <label class="block text-xs font-black uppercase text-slate-300 mb-1">2. Schwab App Secret</label>
-          <input id="schwabAppSecret" type="password" placeholder="Paste App Secret (Saved locally to .env)" class="w-full bg-slate-900 border-2 border-slate-600 rounded-xl px-3 py-2 text-white font-mono text-sm">
-        </div>
-        <div class="flex items-end space-x-2">
-          <button onclick="saveSchwabKeysAndOpenLogin()" class="w-full px-4 py-2.5 bg-purple-500 hover:bg-purple-400 text-white font-black rounded-xl border-2 border-white shadow transition">
-            Step 1: Save Keys &amp; Open Schwab Login ↗
+          <label class="block text-xs font-black uppercase text-purple-300 mb-1">
+            Step 1: Authenticate with Schwab
+          </label>
+          <button onclick="openSchwabLogin()" class="w-full px-4 py-2.5 bg-purple-500 hover:bg-purple-400 text-white font-black rounded-xl border-2 border-white shadow transition">
+            1. Open Schwab Login ↗
           </button>
         </div>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end pt-2 border-t border-slate-800">
-        <div class="md:col-span-3">
+        <div class="md:col-span-2">
           <label class="block text-xs font-black uppercase text-cyan-300 mb-1">
-            Step 2: After logging into Schwab, copy &amp; paste the full Redirect URL (<code class="text-yellow-300">https://127.0.0.1/?code=...</code>) here:
+            Step 2: Paste Redirect URL (<code class="text-yellow-300">https://127.0.0.1/?code=...</code>):
           </label>
           <input id="schwabRedirectInput" type="text" placeholder="https://127.0.0.1/?code=C0.b2F1dGgyLmJkYy5zY2h3YWIuY29t...&session=..." class="w-full bg-slate-900 border-2 border-cyan-500 rounded-xl px-3 py-2 text-yellow-300 font-mono text-sm">
         </div>
         <div>
           <button onclick="activateSchwabToken()" id="schwabActivateBtn" class="w-full px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl border-2 border-white shadow transition">
-            ✅ Activate 7-Day Token
+            ✅ 2. Activate 7-Day Token
           </button>
         </div>
       </div>
@@ -918,31 +910,15 @@
       if (drawer) drawer.classList.toggle('hidden');
     }
 
-    async function saveSchwabKeysAndOpenLogin() {
-      const appKey = document.getElementById('schwabAppKey').value.trim();
-      const appSecret = document.getElementById('schwabAppSecret').value.trim();
+    function openSchwabLogin() {
       const msgEl = document.getElementById('schwabStatusMsg');
-      try {
-        const res = await fetch('/api/schwab/reauth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ app_key: appKey, app_secret: appSecret }),
-        });
-        const data = await res.json();
-        if (data.schwab_status && data.schwab_status.auth_url) {
-          window.open(data.schwab_status.auth_url, '_blank');
-          if (msgEl) msgEl.innerText = 'Opened Schwab login window. After signing in, copy the https://127.0.0.1/?code=... URL from the browser address bar and paste it into Step 2.';
-        } else {
-          if (msgEl) msgEl.innerText = 'Please enter your Schwab App Key & Secret first (from developer.schwab.com).';
-        }
-      } catch (e) {
-        if (msgEl) msgEl.innerText = 'Error connecting to local server: ' + e;
+      window.open('/api/schwab/login', '_blank');
+      if (msgEl) {
+        msgEl.innerText = 'Opened Schwab login window using credentials from local .env. After signing in, copy the https://127.0.0.1/?code=... URL from the address bar and paste it into Step 2.';
       }
     }
 
     async function activateSchwabToken() {
-      const appKey = document.getElementById('schwabAppKey').value.trim();
-      const appSecret = document.getElementById('schwabAppSecret').value.trim();
       const redirectUrl = document.getElementById('schwabRedirectInput').value.trim();
       const msgEl = document.getElementById('schwabStatusMsg');
       if (!redirectUrl) {
@@ -954,7 +930,7 @@
         const res = await fetch('/api/schwab/reauth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ app_key: appKey, app_secret: appSecret, redirect_url: redirectUrl }),
+          body: JSON.stringify({ redirect_url: redirectUrl }),
         });
         const data = await res.json();
         if (msgEl) msgEl.innerText = data.message || '';
@@ -1111,13 +1087,7 @@
         const st = data.schwab_status;
         const btn = document.getElementById('schwabAuthBtn');
         const badge = document.getElementById('schwabDrawerStatusBadge');
-        const keyInput = document.getElementById('schwabAppKey');
-        const secInput = document.getElementById('schwabAppSecret');
         if (badge) badge.innerText = st.status_label || 'Not Configured';
-        if (st.configured) {
-          if (keyInput && !keyInput.value) keyInput.placeholder = '✓ Loaded from .env (leave blank unless changing)';
-          if (secInput && !secInput.value) secInput.placeholder = '✓ Loaded from .env (leave blank unless changing)';
-        }
         if (btn) {
           if (st.connected) {
             btn.innerText = `🟢 Schwab ToS (${st.days_remaining}d ${st.hours_remaining}h)`;

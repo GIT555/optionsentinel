@@ -1136,6 +1136,18 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_response(self.sentinel.evaluate_equity_and_exposure())
         elif path == "/api/schwab/status":
             self._send_json_response(self.scanner.market_client.schwab_client.get_status())
+        elif path == "/api/schwab/login":
+            auth_url = self.scanner.market_client.schwab_client.get_auth_url()
+            if auth_url:
+                self.send_response(302)
+                self.send_header("Location", auth_url)
+                self.send_header("Connection", "close")
+                self.end_headers()
+            else:
+                self._send_json_response({
+                    "status": "error",
+                    "message": "Set SCHWAB_APP_KEY and SCHWAB_APP_SECRET in your local .env file first.",
+                })
         elif path in ["/", "/index.html"]:
             self._serve_ui_dashboard()
         else:
@@ -1197,11 +1209,6 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
             sc = self.scanner.market_client.schwab_client
-            app_key = body.get("app_key", "").strip()
-            app_secret = body.get("app_secret", "").strip()
-            redirect_uri = body.get("redirect_uri", sc.redirect_uri or "https://127.0.0.1").strip()
-            if app_key and app_secret:
-                sc.save_credentials(app_key, app_secret, redirect_uri)
             redirect_url = body.get("redirect_url", "").strip()
             if redirect_url:
                 ok, msg = sc.exchange_code_from_redirect(redirect_url)
@@ -1214,8 +1221,8 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
                 })
             else:
                 self._send_json_response({
-                    "status": "success",
-                    "message": "Schwab App Key & Secret saved to local git-ignored .env.",
+                    "status": "error",
+                    "message": "Paste the https://127.0.0.1/?code=... redirect URL from Schwab login.",
                     "schwab_status": sc.get_status(),
                 })
         else:
