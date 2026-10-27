@@ -1097,7 +1097,7 @@ class AutoSyncManager:
         self._running = True
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
-        print(f"🔄 Auto-Sync Active: Background telemetry updates automatically every {self.interval}s.")
+        print(f"[*] Auto-Sync Active: Background telemetry updates automatically every {self.interval}s.")
 
     def _worker(self):
         while self._running:
@@ -1396,12 +1396,12 @@ def main():
             block_on_close = False
 
         print(f"\n================================================================================")
-        print(f"🚀 Live Option Sentinel Dashboard Active (All Devices Mode):")
-        print(f"   💻 On This PC          : http://127.0.0.1:{port}/")
-        print(f"   📱 Phone / iPad / Wi-Fi: http://{lan_ip}:{port}/")
-        print(f"   📡 Feed Mode           : 100% REAL LIVE MARKET DATA (ZERO SIMULATION)")
-        print(f"   📂 Manual Positions    : positions.csv (Manageable from any browser)")
-        print(f"   🛑 Stop Server         : Press Ctrl+C to exit immediately")
+        print(f"[>] Live Option Sentinel Dashboard Active (All Devices Mode):")
+        print(f"    On This PC          : http://127.0.0.1:{port}/")
+        print(f"    Phone / iPad / Wi-Fi: http://{lan_ip}:{port}/")
+        print(f"    Feed Mode           : 100% REAL LIVE MARKET DATA (ZERO SIMULATION)")
+        print(f"    Manual Positions    : positions.csv (Manageable from any browser)")
+        print(f"    Stop Server         : Press Ctrl+C to exit immediately")
         print(f"================================================================================")
         print("API Endpoints:")
         print(f"  - http://{lan_ip}:{port}/api/summary")
