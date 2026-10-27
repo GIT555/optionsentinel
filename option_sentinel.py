@@ -1350,7 +1350,7 @@ def main():
     parser = argparse.ArgumentParser(description="Live Option Sentinel & Strike Selector Agent.")
     parser.add_argument("--server", action="store_true", default=True, help="Run live HTTP UI dashboard server.")
     parser.add_argument("--cli", action="store_true", help="Run terminal scan mode.")
-    parser.add_argument("--schwab-auth", type=str, default="", help="Paste callback redirect URL (https://127.0.0.1/?code=...) to activate 7-day token via CLI.")
+    parser.add_argument("--schwab-auth", nargs="?", const="FROM_ENV", default="", help="Activate 7-day Schwab token (reads SCHWAB_CALLBACK_URL from .env, or pass callback URL directly).")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host interface to bind (0.0.0.0 for all devices).")
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8765)), help="Port for dashboard (default: 8765).")
 
@@ -1361,7 +1361,8 @@ def main():
 
     if args.schwab_auth:
         print("\n[SCHWAB OAUTH EXCHANGE]")
-        ok, msg = scanner.market_client.schwab_client.exchange_code_from_redirect(args.schwab_auth)
+        target_input = "" if args.schwab_auth == "FROM_ENV" else args.schwab_auth
+        ok, msg = scanner.market_client.schwab_client.exchange_code_from_redirect(target_input)
         if ok:
             print(f"SUCCESS: {msg}")
             print(f"Saved 7-day token to git-ignored schwab_tokens.json.")

@@ -299,19 +299,33 @@ class SchwabReadOnlyClient:
             "mode": "100% READ-ONLY (GET Market Data Only)",
         }
 
-    def exchange_code_from_redirect(self, redirect_url_or_code: str) -> Tuple[bool, str]:
-        """Exchanges pasted redirect URL (https://127.0.0.1/?code=...) for a 7-day refresh token."""
+    def exchange_code_from_redirect(self, redirect_url_or_code: str = "") -> Tuple[bool, str]:
+        """
+        Exchanges callback redirect URL or code for a 7-day refresh token.
+        Can receive redirect_url_or_code directly, or automatically read
+        SCHWAB_CALLBACK_URL from local .env.
+        """
         self._sync_env_credentials()
         if not (self.app_key and self.app_secret):
-            return False, "Missing SCHWAB_APP_KEY or SCHWAB_APP_SECRET."
-        raw = redirect_url_or_code.strip()
+            return False, "Missing SCHWAB_APP_KEY or SCHWAB_APP_SECRET in .env."
+
+        raw = redirect_url_or_code.strip() if redirect_url_or_code else ""
+        if not raw:
+            env_vars = _load_local_dotenv()
+            raw = (env_vars.get("SCHWAB_CALLBACK_URL") or os.environ.get("SCHWAB_CALLBACK_URL") or "").strip()
+
+        if not raw:
+            return False, "No callback URL provided. Pass it as an argument or add SCHWAB_CALLBACK_URL to .env."
+
         code = raw
         if "code=" in raw:
             parsed = urllib.parse.urlparse(raw)
             qs = urllib.parse.parse_qs(parsed.query)
-            code = qs.get("code", [""])[0]
+            extracted = qs.get("code", [""])[0]
+            code = urllib.parse.unquote(extracted) if extracted else raw
         else:
             code = urllib.parse.unquote(raw)
+
         if not code:
             return False, "No authorization code found in URL."
 
