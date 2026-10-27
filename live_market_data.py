@@ -10,6 +10,7 @@ Uses native Windows Certificate Store via truststore for corporate/antivirus com
 
 from __future__ import annotations
 
+import base64
 import concurrent.futures
 import datetime
 import json
@@ -19,6 +20,7 @@ import sqlite3
 import sys
 import threading
 import time
+import urllib.parse
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -184,6 +186,307 @@ class SQLiteMarketCache:
             sys.stderr.write(f"[CACHE-WRITE WARNING]: Unable to persist {key}: {e}\n")
 
 
+def _load_local_dotenv() -> Dict[str, str]:
+    """Loads key=value pairs from local .env file without external dependencies."""
+    env_map: Dict[str, str] = {}
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    env_map[k.strip()] = v.strip().strip('"').strip("'")
+        except Exception:
+            pass
+    return env_map
+
+
+class SchwabReadOnlyClient:
+    """
+    100% Read-Only Charles Schwab / Thinkorswim Market Data Client.
+    - Strictly GET-only Market Data endpoints (/marketdata/v1/pricehistory, /marketdata/v1/chains).
+    - Zero order placement or account modification methods exist in this class.
+    - Supports the standard 7-day Schwab OAuth2 refresh token cycle (same as OptionAlpha)
+      with automatic 30-minute access_token renewal.
+    """
+
+    SCHWAB_SYMBOL_MAP: Dict[str, str] = {
+        "XSP": "$XSP",
+        "^XSP": "$XSP",
+    }
+
+    def __init__(self, limiter: TokenBucketRateLimiter):
+        self.limiter = limiter
+        self._lock = threading.Lock()
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.token_path = os.path.join(base_dir, "schwab_tokens.json")
+        self.app_key = ""
+        self.app_secret = ""
+        self.redirect_uri = "https://127.0.0.1"
+        self._sync_env_credentials()
+        self._tokens: Dict[str, Any] = self._load_tokens()
+
+    def _sync_env_credentials(self):
+        dotenv_vars = _load_local_dotenv()
+        key = (os.environ.get("SCHWAB_APP_KEY") or dotenv_vars.get("SCHWAB_APP_KEY") or "").strip()
+        secret = (os.environ.get("SCHWAB_APP_SECRET") or dotenv_vars.get("SCHWAB_APP_SECRET") or "").strip()
+        redirect = (
+            os.environ.get("SCHWAB_REDIRECT_URI")
+            or dotenv_vars.get("SCHWAB_REDIRECT_URI")
+            or "https://127.0.0.1"
+        ).strip()
+        if key:
+            self.app_key = key
+        if secret:
+            self.app_secret = secret
+        if redirect:
+            self.redirect_uri = redirect
+
+    def _load_tokens(self) -> Dict[str, Any]:
+        if os.path.exists(self.token_path):
+            try:
+                with open(self.token_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+        return {}
+
+    def _save_tokens(self, token_payload: Dict[str, Any]):
+        with self._lock:
+            self._tokens = token_payload
+            try:
+                with open(self.token_path, "w", encoding="utf-8") as f:
+                    json.dump(token_payload, f, indent=2)
+            except Exception as e:
+                sys.stderr.write(f"[SCHWAB-TOKEN WARNING]: Could not write schwab_tokens.json: {e}\n")
+
+    def save_credentials(self, app_key: str, app_secret: str, redirect_uri: str = "https://127.0.0.1"):
+        """Saves SCHWAB_APP_KEY and SCHWAB_APP_SECRET to local git-ignored .env file."""
+        self.app_key = app_key.strip()
+        self.app_secret = app_secret.strip()
+        self.redirect_uri = (redirect_uri or self.redirect_uri or "https://127.0.0.1").strip()
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+        existing = _load_local_dotenv()
+        existing["SCHWAB_APP_KEY"] = self.app_key
+        existing["SCHWAB_APP_SECRET"] = self.app_secret
+        existing["SCHWAB_REDIRECT_URI"] = self.redirect_uri
+        with open(env_path, "w", encoding="utf-8") as f:
+            for k, v in existing.items():
+                f.write(f"{k}={v}\n")
+
+    def get_auth_url(self) -> str:
+        if not self.app_key:
+            return ""
+        encoded_redirect = urllib.parse.quote(self.redirect_uri, safe=":/")
+        return (
+            f"https://api.schwabapi.com/v1/oauth/authorize"
+            f"?response_type=code"
+            f"&client_id={urllib.parse.quote(self.app_key, safe='')}"
+            f"&redirect_uri={encoded_redirect}"
+        )
+
+    def get_status(self) -> Dict[str, Any]:
+        self._sync_env_credentials()
+        now = time.time()
+        configured = bool(self.app_key and self.app_secret)
+        refresh_exp = float(self._tokens.get("refresh_expires_at", 0.0))
+        remaining_sec = max(0.0, refresh_exp - now)
+        connected = bool(configured and self._tokens.get("refresh_token") and remaining_sec > 0)
+        days_left = int(remaining_sec // 86400)
+        hours_left = int((remaining_sec % 86400) // 3600)
+        if not configured:
+            status_label = "Not Configured (Using Yahoo/SQLite)"
+        elif connected:
+            status_label = f"Schwab ToS Connected ({days_left}d {hours_left}h left)"
+        else:
+            status_label = "Keys Loaded (.env) — Click to Activate 7d Token"
+        return {
+            "configured": configured,
+            "connected": connected,
+            "days_remaining": days_left,
+            "hours_remaining": hours_left,
+            "redirect_uri": self.redirect_uri,
+            "auth_url": self.get_auth_url(),
+            "status_label": status_label,
+            "mode": "100% READ-ONLY (GET Market Data Only)",
+        }
+
+    def exchange_code_from_redirect(self, redirect_url_or_code: str) -> Tuple[bool, str]:
+        """Exchanges pasted redirect URL (https://127.0.0.1/?code=...) for a 7-day refresh token."""
+        self._sync_env_credentials()
+        if not (self.app_key and self.app_secret):
+            return False, "Missing SCHWAB_APP_KEY or SCHWAB_APP_SECRET."
+        raw = redirect_url_or_code.strip()
+        code = raw
+        if "code=" in raw:
+            parsed = urllib.parse.urlparse(raw)
+            qs = urllib.parse.parse_qs(parsed.query)
+            code = qs.get("code", [""])[0]
+        else:
+            code = urllib.parse.unquote(raw)
+        if not code:
+            return False, "No authorization code found in URL."
+
+        basic_token = base64.b64encode(f"{self.app_key}:{self.app_secret}".encode("utf-8")).decode("utf-8")
+        headers = {
+            "Authorization": f"Basic {basic_token}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        payload = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": self.redirect_uri,
+        }
+        try:
+            resp = requests.post("https://api.schwabapi.com/v1/oauth/token", headers=headers, data=payload, timeout=8)
+            if resp.status_code == 200:
+                data = resp.json()
+                now = time.time()
+                data["access_expires_at"] = now + float(data.get("expires_in", 1800)) - 60.0
+                data["refresh_expires_at"] = now + (7 * 86400.0) - 300.0
+                data["updated_at_iso"] = datetime.datetime.now().isoformat()
+                self._save_tokens(data)
+                return True, "Schwab Thinkorswim 7-Day Read-Only Token Activated!"
+            return False, f"Schwab OAuth HTTP {resp.status_code}: {resp.text[:200]}"
+        except Exception as e:
+            return False, f"Schwab OAuth connection error: {e}"
+
+    def _get_valid_access_token(self) -> Optional[str]:
+        if not (self.app_key and self.app_secret):
+            return None
+        now = time.time()
+        access_token = self._tokens.get("access_token")
+        access_exp = float(self._tokens.get("access_expires_at", 0.0))
+        if access_token and now < access_exp:
+            return access_token
+
+        refresh_token = self._tokens.get("refresh_token")
+        refresh_exp = float(self._tokens.get("refresh_expires_at", 0.0))
+        if not refresh_token or now >= refresh_exp:
+            return None
+
+        basic_token = base64.b64encode(f"{self.app_key}:{self.app_secret}".encode("utf-8")).decode("utf-8")
+        headers = {
+            "Authorization": f"Basic {basic_token}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        payload = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        }
+        try:
+            resp = requests.post("https://api.schwabapi.com/v1/oauth/token", headers=headers, data=payload, timeout=6)
+            if resp.status_code == 200:
+                new_data = resp.json()
+                merged = dict(self._tokens)
+                merged.update(new_data)
+                merged["access_expires_at"] = now + float(new_data.get("expires_in", 1800)) - 60.0
+                self._save_tokens(merged)
+                return merged.get("access_token")
+            sys.stderr.write(f"[SCHWAB-AUTH WARNING]: Token refresh HTTP {resp.status_code}\n")
+        except Exception as e:
+            sys.stderr.write(f"[SCHWAB-AUTH WARNING]: Token refresh failed ({e})\n")
+        return None
+
+    def get_chart_history(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Read-only GET /marketdata/v1/pricehistory for 1Y daily candles."""
+        token = self._get_valid_access_token()
+        if not token:
+            return None
+        schwab_sym = self.SCHWAB_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
+        url = (
+            "https://api.schwabapi.com/marketdata/v1/pricehistory"
+            f"?symbol={urllib.parse.quote(schwab_sym)}&periodType=year&period=1&frequencyType=daily&frequency=1"
+        )
+        try:
+            self.limiter.acquire()
+            r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=4)
+            if r.status_code == 200:
+                candles = r.json().get("candles", [])
+                if candles:
+                    closes = [float(c["close"]) for c in candles if "close" in c]
+                    if closes:
+                        return {
+                            "meta": {
+                                "regularMarketPrice": closes[-1],
+                                "previousClose": closes[-2] if len(closes) > 1 else closes[-1],
+                                "provider": "Schwab ToS API",
+                            },
+                            "indicators": {"quote": [{"close": closes}]},
+                        }
+        except Exception as e:
+            sys.stderr.write(f"[SCHWAB-API FALLBACK]: Chart fetch for {symbol} failed ({e})\n")
+        return None
+
+    def get_option_chain(
+        self, symbol: str, from_dte: int, to_dte: int
+    ) -> Optional[List[LiveOptionContract]]:
+        """Read-only GET /marketdata/v1/chains with broker-calculated Greeks."""
+        token = self._get_valid_access_token()
+        if not token:
+            return None
+        schwab_sym = self.SCHWAB_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
+        today = datetime.date.today()
+        from_date = (today + datetime.timedelta(days=max(1, from_dte))).strftime("%Y-%m-%d")
+        to_date = (today + datetime.timedelta(days=max(from_dte + 1, to_dte))).strftime("%Y-%m-%d")
+        url = (
+            "https://api.schwabapi.com/marketdata/v1/chains"
+            f"?symbol={urllib.parse.quote(schwab_sym)}&contractType=ALL&includeUnderlyingQuote=true"
+            f"&fromDate={from_date}&toDate={to_date}"
+        )
+        try:
+            self.limiter.acquire()
+            r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=6)
+            if r.status_code != 200:
+                return None
+            data = r.json()
+            contracts: List[LiveOptionContract] = []
+            for opt_type, map_key in [("CALL", "callExpDateMap"), ("PUT", "putExpDateMap")]:
+                exp_map = data.get(map_key, {})
+                for exp_key, strikes_map in exp_map.items():
+                    parts = exp_key.split(":")
+                    exp_str = parts[0]
+                    dte_val = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else from_dte
+                    for strike_str, contract_list in strikes_map.items():
+                        if not contract_list:
+                            continue
+                        c = contract_list[0]
+                        strike_f = float(c.get("strikePrice", strike_str))
+                        bid = float(c.get("bid", 0.0) or 0.0)
+                        ask = float(c.get("ask", 0.0) or 0.0)
+                        last = float(c.get("last", 0.0) or 0.0)
+                        mid = round((bid + ask) / 2.0, 2) if (bid > 0 and ask > 0) else round(max(0.01, last), 2)
+                        iv_pct = float(c.get("volatility", 20.0) or 20.0)
+                        iv_dec = round(iv_pct / 100.0, 4) if iv_pct > 1.5 else round(iv_pct, 4)
+                        contracts.append(
+                            LiveOptionContract(
+                                contract_symbol=str(c.get("symbol", f"{symbol}-{opt_type}-{strike_f}")).replace(" ", ""),
+                                strike=strike_f,
+                                dte=dte_val,
+                                expiration=exp_str,
+                                option_type=opt_type,
+                                bid=round(bid, 2),
+                                ask=round(ask, 2),
+                                mid=mid,
+                                last_price=round(last, 2),
+                                volume=int(c.get("totalVolume", 0) or 0),
+                                open_interest=int(c.get("openInterest", 0) or 0),
+                                implied_volatility=iv_dec,
+                                delta_approx=round(float(c.get("delta", 0.0) or 0.0), 3),
+                                gamma_approx=round(float(c.get("gamma", 0.0) or 0.0), 4),
+                                theta_approx=round(float(c.get("theta", 0.0) or 0.0), 3),
+                                in_the_money=bool(c.get("inTheMoney", False)),
+                            )
+                        )
+            return contracts if contracts else None
+        except Exception as e:
+            sys.stderr.write(f"[SCHWAB-API FALLBACK]: Option chain fetch for {symbol} failed ({e})\n")
+            return None
+
+
 class LiveMarketClient:
     """
     Client for querying real-time market data and live options chains.
@@ -203,9 +506,24 @@ class LiveMarketClient:
         self._cache_quotes: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._cache_chains: Dict[str, Tuple[float, List[LiveOptionContract]]] = {}
         self.sqlite_cache = SQLiteMarketCache()
+        self.schwab_limiter = TokenBucketRateLimiter(max_calls=90, period_seconds=60.0, min_interval_sec=0.05)
         self.yahoo_limiter = TokenBucketRateLimiter(max_calls=30, period_seconds=60.0, min_interval_sec=0.05)
         self.twelve_data_limiter = TokenBucketRateLimiter(max_calls=8, period_seconds=60.0, min_interval_sec=0.25)
-        self.twelve_data_api_key = os.environ.get("TWELVE_DATA_API_KEY", "").strip()
+        self.schwab_client = SchwabReadOnlyClient(self.schwab_limiter)
+        self.twelve_data_api_key = (
+            os.environ.get("TWELVE_DATA_API_KEY")
+            or _load_local_dotenv().get("TWELVE_DATA_API_KEY")
+            or ""
+        ).strip()
+        self.recent_warnings: List[str] = []
+        self.active_provider: str = "Live Feed"
+
+    def _log_warning(self, msg: str):
+        sys.stderr.write(f"{msg}\n")
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        entry = f"[{ts}] {msg}"
+        if entry not in self.recent_warnings:
+            self.recent_warnings = (self.recent_warnings + [entry])[-15:]
 
     def _get_session(self) -> requests.Session:
         if self._session is None:
@@ -253,10 +571,19 @@ class LiveMarketClient:
             self._cache_quotes[yahoo_sym] = (now, sql_cached)
             return sql_cached
 
+        # Provider 0: Schwab / Thinkorswim Read-Only Official API (if connected)
+        schwab_chart = self.schwab_client.get_chart_history(symbol)
+        if schwab_chart:
+            self.active_provider = "Schwab ToS Live (Read-Only)"
+            self._cache_quotes[yahoo_sym] = (now, schwab_chart)
+            self.sqlite_cache.set(f"CHART_{yahoo_sym}", schwab_chart)
+            return schwab_chart
+
         # Circuit breaker: if network/API is currently in backoff, serve persisted SQLite cache immediately
         if now < self._network_backoff_until:
             stale_cached = self.sqlite_cache.get(f"CHART_{yahoo_sym}", max_age_seconds=None)
             if stale_cached:
+                self.active_provider = "SQLite Cached Fallback (Yahoo/Twelve Offline)"
                 self._cache_quotes[yahoo_sym] = (now, stale_cached)
                 return stale_cached
 
@@ -271,21 +598,16 @@ class LiveMarketClient:
                 data = r.json()
                 if "chart" in data and data["chart"]["result"]:
                     result = data["chart"]["result"][0]
+                    self.active_provider = "Yahoo Finance Live"
                     self._cache_quotes[yahoo_sym] = (now, result)
                     self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
                     return result
             elif r.status_code == 429:
                 self._network_backoff_until = time.time() + 60.0
-                sys.stderr.write(f"[RATE-LIMIT WARNING]: Yahoo Finance 429 on {symbol}; switching to fallback provider.\n")
+                self._log_warning(f"[RATE-LIMIT WARNING]: Yahoo Finance 429 on {symbol}; switching to fallback provider.")
         except Exception as e:
             self._network_backoff_until = time.time() + 60.0
-            sys.stderr.write(f"[API FALLBACK]: Primary chart request for {symbol} failed ({e}); checking cache/fallback.\n")
-
-        # Fast Resilient Fallback: Local SQLite Last-Known Real Market Data (avoids slow network retries)
-        stale_cached = self.sqlite_cache.get(f"CHART_{yahoo_sym}", max_age_seconds=None)
-        if stale_cached:
-            self._cache_quotes[yahoo_sym] = (now, stale_cached)
-            return stale_cached
+            self._log_warning(f"[API FALLBACK]: Yahoo Finance chart request for {symbol} failed ({e}); checking fallback/cache.")
 
         # Provider 2: Twelve Data Free Tier API (Max 8 req/min enforced)
         if self.twelve_data_api_key:
@@ -308,11 +630,21 @@ class LiveMarketClient:
                             },
                             "indicators": {"quote": [{"close": closes}]},
                         }
+                        self.active_provider = "Twelve Data Live"
                         self._cache_quotes[yahoo_sym] = (now, result)
                         self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
                         return result
+                else:
+                    self._log_warning(f"[API FALLBACK]: Twelve Data HTTP {r_td.status_code} on {symbol}.")
             except Exception as e:
-                sys.stderr.write(f"[API FALLBACK]: Twelve Data fallback for {symbol} failed ({e}).\n")
+                self._log_warning(f"[API FALLBACK]: Twelve Data fallback for {symbol} failed ({e}).")
+
+        # Fast Resilient Fallback: Local SQLite Last-Known Real Market Data
+        stale_cached = self.sqlite_cache.get(f"CHART_{yahoo_sym}", max_age_seconds=None)
+        if stale_cached:
+            self.active_provider = "SQLite Cached Fallback (Upstream Offline)"
+            self._cache_quotes[yahoo_sym] = (now, stale_cached)
+            return stale_cached
 
         # Provider 3: yfinance library fallback (only if SQLite cache has no entry for this ticker)
         if yf is not None:
@@ -329,11 +661,12 @@ class LiveMarketClient:
                             },
                             "indicators": {"quote": [{"close": closes}]},
                         }
+                        self.active_provider = "yfinance Live"
                         self._cache_quotes[yahoo_sym] = (now, result)
                         self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
                         return result
             except Exception as e:
-                sys.stderr.write(f"[API FALLBACK]: yfinance fallback for {symbol} failed ({e}).\n")
+                self._log_warning(f"[API FALLBACK]: yfinance fallback for {symbol} failed ({e}).")
 
         return None
 
@@ -407,6 +740,13 @@ class LiveMarketClient:
             restored = [LiveOptionContract(**c) for c in sql_chain]
             self._cache_chains[cache_key] = (now, restored)
             return restored
+
+        # Provider 0: Schwab / Thinkorswim Read-Only Official API (if connected)
+        schwab_chain = self.schwab_client.get_option_chain(symbol, target_dte_min, target_dte_max)
+        if schwab_chain:
+            self._cache_chains[cache_key] = (now, schwab_chain)
+            self.sqlite_cache.set(f"CHAIN_{cache_key}", [asdict(c) for c in schwab_chain])
+            return schwab_chain
 
         if now < self._network_backoff_until:
             stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
@@ -531,6 +871,13 @@ class LiveMarketClient:
             restored = [LiveOptionContract(**c) for c in sql_leap]
             self._cache_chains[cache_key] = (now, restored)
             return [c for c in restored if c.option_type == opt_filter]
+
+        # Provider 0: Schwab / Thinkorswim Read-Only Official API (if connected)
+        schwab_leaps = self.schwab_client.get_option_chain(symbol, min_dte, 550)
+        if schwab_leaps:
+            self._cache_chains[cache_key] = (now, schwab_leaps)
+            self.sqlite_cache.set(f"CHAIN_{cache_key}", [asdict(c) for c in schwab_leaps])
+            return [c for c in schwab_leaps if c.option_type == opt_filter]
 
         if now < self._network_backoff_until:
             stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)

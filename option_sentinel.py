@@ -144,7 +144,7 @@ WATCHLIST_MATRIX: Dict[str, TickerMetadata] = {
     "GLD": TickerMetadata("GLD", "SPDR Gold Trust", AssetCategory.COMMODITY, False, False, 1.0),
     "SLV": TickerMetadata("SLV", "iShares Silver Trust", AssetCategory.COMMODITY, False, False, 0.5),
     "IAU": TickerMetadata("IAU", "iShares Gold Trust", AssetCategory.COMMODITY, False, False, 0.5),
-    "IBIT": TickerMetadata("IBIT", "iShares Bitcoin Trust ETF", AssetCategory.CRYPTO_BONDS, True, False, 0.5),
+    "IBIT": TickerMetadata("IBIT", "iShares Bitcoin Trust ETF", AssetCategory.CRYPTO_BONDS, False, False, 0.5),
     "TLT": TickerMetadata("TLT", "iShares 20+ Year Treasury Bond", AssetCategory.CRYPTO_BONDS, False, False, 0.5),
 }
 
@@ -194,6 +194,10 @@ class WheelStrikeRecommendation:
     annualized_roc: float
     downside_buffer_pct: float
     roll_trigger_dte: int = 14
+    iv_percentile_6m: float = 0.0
+    expected_1sd_move: float = 0.0
+    is_qualified: bool = False
+    status: str = "WATCHLIST"
 
 
 @dataclass
@@ -225,6 +229,9 @@ class LeapRecommendation:
     pmcc_gap_safety: str
     pmcc_cash_flow_yield_pct: float
     workflow_queue: str
+    name: str = ""
+    is_qualified: bool = False
+    status: str = "WATCHLIST"
 
 
 class StrategyScanner:
@@ -287,7 +294,7 @@ class StrategyScanner:
             )
         return results
 
-    def generate_wheel_matrix(self, all_tickers: bool = False) -> List[WheelStrikeRecommendation]:
+    def generate_wheel_matrix(self, all_tickers: bool = True) -> List[WheelStrikeRecommendation]:
         recommendations: List[WheelStrikeRecommendation] = []
 
         for sym, meta in WATCHLIST_MATRIX.items():
@@ -362,12 +369,17 @@ class StrategyScanner:
                 annualized_roc=annualized_roc,
                 downside_buffer_pct=downside_buffer,
                 roll_trigger_dte=14,
+                iv_percentile_6m=snap.iv_percentile_6m,
+                expected_1sd_move=round(move_1sd, 2),
+                is_qualified=is_qualified,
+                status="QUALIFIED TRIGGER" if is_qualified else f"WATCH (IVR {snap.iv_rank:.0f}% | IVP {snap.iv_percentile_6m:.0f}%)",
             )
             recommendations.append(rec)
 
+        recommendations.sort(key=lambda r: (not r.is_qualified, -r.iv_rank))
         return recommendations
 
-    def generate_leap_matrix(self) -> List[LeapRecommendation]:
+    def generate_leap_matrix(self, all_tickers: bool = True) -> List[LeapRecommendation]:
         recommendations: List[LeapRecommendation] = []
 
         for sym, meta in WATCHLIST_MATRIX.items():
@@ -378,7 +390,8 @@ class StrategyScanner:
             if not snap:
                 continue
 
-            if not (snap.iv_rank < 20.0 and snap.rsi_14 < 35.0):
+            is_qualified = (snap.iv_rank < 20.0 and snap.rsi_14 < 35.0)
+            if not is_qualified and not all_tickers:
                 continue
 
             spot = snap.spot
@@ -430,6 +443,7 @@ class StrategyScanner:
             annual_drag = round((extrinsic / spot) * (365.0 / max(1, leap_dte)) * 100.0, 2) if spot > 0 else 0.0
             spread_width = round(pmcc_strike - leap_strike, 2)
             gap_safety = "SAFE: Zero Upside Gap Risk" if spread_width >= net_debit else "MONITOR: Upside Risk"
+            status_str = "QUALIFIED LEAP TRIGGER" if is_qualified else f"WATCH (RSI {snap.rsi_14:.1f} | IVR {snap.iv_rank:.1f}%)"
 
             rec = LeapRecommendation(
                 symbol=sym,
@@ -459,9 +473,13 @@ class StrategyScanner:
                 pmcc_gap_safety=gap_safety,
                 pmcc_cash_flow_yield_pct=pmcc_yield,
                 workflow_queue=workflow,
+                name=meta.name,
+                is_qualified=is_qualified,
+                status=status_str,
             )
             recommendations.append(rec)
 
+        recommendations.sort(key=lambda r: (not r.is_qualified, r.rsi))
         return recommendations
 
     def generate_leap_put_matrix(self, all_tickers: bool = True) -> List[Dict[str, Any]]:
@@ -798,7 +816,9 @@ class GammaDangerSentinel:
                     "rsi_14": snap.rsi_14 if snap else 50.0,
                     "iv_rank": snap.iv_rank if snap else 25.0,
                     "accounts": set(),
+                    "by_account": {},
                     "shares": 0,
+                    "equity_cost_sum": 0.0,
                     "equity_market_value": 0.0,
                     "equity_pnl_dollars": 0.0,
                     "long_leap_calls": 0,
@@ -810,14 +830,30 @@ class GammaDangerSentinel:
                 }
 
             entry = by_symbol[sym]
-            entry["accounts"].add(pos.get("account", "Manual"))
+            acct_name = pos.get("account", "Manual")
+            entry["accounts"].add(acct_name)
+            if acct_name not in entry["by_account"]:
+                entry["by_account"][acct_name] = {
+                    "shares": 0,
+                    "equity_cost_sum": 0.0,
+                    "leap_calls": 0,
+                    "leap_be_sum": 0.0,
+                    "short_calls": 0,
+                    "short_puts": 0,
+                }
+            acct_info = entry["by_account"][acct_name]
             opt_type = pos["option_type"]
             qty = int(pos["contracts"])
+            entry_prem = float(pos.get("entry_premium", 0.0))
+            strike_val = float(pos.get("strike", 0.0))
 
             if opt_type == "EQUITY":
                 entry["shares"] += qty
+                entry["equity_cost_sum"] += qty * entry_prem
                 entry["equity_market_value"] += qty * entry["spot"]
                 entry["equity_pnl_dollars"] += pos.get("pnl_dollars", 0.0)
+                acct_info["shares"] += qty
+                acct_info["equity_cost_sum"] += qty * entry_prem
             else:
                 raw_delta = float(pos.get("delta", 0.5 if opt_type == "CALL" else -0.3))
                 # Ensure sign of contract delta aligns with Call (+) / Put (-)
@@ -828,11 +864,15 @@ class GammaDangerSentinel:
                 if opt_type == "CALL":
                     if qty > 0:
                         entry["long_leap_calls"] += qty
+                        acct_info["leap_calls"] += qty
+                        acct_info["leap_be_sum"] += qty * (strike_val + entry_prem)
                     elif qty < 0:
                         entry["short_calls"] += abs(qty)
+                        acct_info["short_calls"] += abs(qty)
                 elif opt_type == "PUT":
                     if qty < 0:
                         entry["short_puts"] += abs(qty)
+                        acct_info["short_puts"] += abs(qty)
                     elif qty > 0:
                         entry["long_puts"] += qty
 
@@ -871,6 +911,48 @@ class GammaDangerSentinel:
 
             cc_exit_50 = round(cc_mid * 0.50, 2)
             cc_total_credit = round(max(1, cc_capacity) * cc_mid * 100.0, 2)
+            avg_equity_basis = round(item["equity_cost_sum"] / shares, 2) if shares > 0 else 0.0
+
+            # Per-account Covered Call / PMCC Capacity & Cost-Basis / Breakeven Audit
+            account_cc_breakdown: List[str] = []
+            cost_basis_warnings: List[str] = []
+            for acct_name in sorted(item["by_account"].keys()):
+                ai = item["by_account"][acct_name]
+                a_sh = ai["shares"]
+                a_leaps = ai["leap_calls"]
+                a_sc = ai["short_calls"]
+                a_sp = ai["short_puts"]
+                a_lots = (a_sh // 100) + a_leaps
+                a_cap = max(0, a_lots - a_sc)
+                a_eq_basis = round(ai["equity_cost_sum"] / a_sh, 2) if a_sh > 0 else 0.0
+                a_leap_be = round(ai["leap_be_sum"] / a_leaps, 2) if a_leaps > 0 else 0.0
+
+                if a_lots > 0:
+                    src_parts = []
+                    if a_sh >= 100:
+                        src_parts.append(f"{a_sh}sh @ ${a_eq_basis:.2f} basis")
+                    if a_leaps > 0:
+                        src_parts.append(f"+{a_leaps} LEAP @ ${a_leap_be:.2f} B/E")
+                    src_label = " + ".join(src_parts)
+                    if a_cap > 0:
+                        account_cc_breakdown.append(f"{acct_name}: {a_cap}x CC ({src_label})")
+                        if a_sh >= 100 and cc_strike < a_eq_basis:
+                            above_calls = [c for c in calls if c.strike >= a_eq_basis] if calls else []
+                            safe_hint = ""
+                            if above_calls:
+                                sc_safe = min(above_calls, key=lambda c: c.strike)
+                                safe_hint = f" (Safe above-basis strike: ${sc_safe.strike:g} Call @ ${sc_safe.mid:.2f})"
+                            cost_basis_warnings.append(
+                                f"⚠️ {acct_name}: 0.30Δ ${cc_strike:g} Call is BELOW ${a_eq_basis:.2f} share cost basis!{safe_hint}"
+                            )
+                        if a_leaps > 0 and cc_strike < a_leap_be:
+                            cost_basis_warnings.append(
+                                f"⚠️ {acct_name}: 0.30Δ ${cc_strike:g} Call is BELOW ${a_leap_be:.2f} LEAP breakeven!"
+                            )
+                    else:
+                        account_cc_breakdown.append(f"{acct_name}: COVERED ({a_sc}/{a_lots} short calls active)")
+                elif a_sp > 0:
+                    account_cc_breakdown.append(f"{acct_name}: 0x CC (-{a_sp} CSP only — cannot sell CC on Puts)")
 
             rsi = item["rsi_14"]
             ivr = item["iv_rank"]
@@ -911,6 +993,9 @@ class GammaDangerSentinel:
             exposure_rows.append({
                 "symbol": sym,
                 "accounts": ", ".join(sorted(item["accounts"])),
+                "account_cc_breakdown": account_cc_breakdown,
+                "cost_basis_warnings": cost_basis_warnings,
+                "avg_equity_cost_basis": avg_equity_basis,
                 "spot": round(spot, 2),
                 "rsi_14": round(rsi, 1),
                 "iv_rank": round(ivr, 1),
@@ -1049,6 +1134,8 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_response(self.sentinel.evaluate_all_manual_positions())
         elif path == "/api/equity":
             self._send_json_response(self.sentinel.evaluate_equity_and_exposure())
+        elif path == "/api/schwab/status":
+            self._send_json_response(self.scanner.market_client.schwab_client.get_status())
         elif path in ["/", "/index.html"]:
             self._serve_ui_dashboard()
         else:
@@ -1106,6 +1193,31 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
                 })
             except Exception as e:
                 self._send_json_response({"status": "error", "message": str(e)})
+        elif path == "/api/schwab/reauth":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+            sc = self.scanner.market_client.schwab_client
+            app_key = body.get("app_key", "").strip()
+            app_secret = body.get("app_secret", "").strip()
+            redirect_uri = body.get("redirect_uri", sc.redirect_uri or "https://127.0.0.1").strip()
+            if app_key and app_secret:
+                sc.save_credentials(app_key, app_secret, redirect_uri)
+            redirect_url = body.get("redirect_url", "").strip()
+            if redirect_url:
+                ok, msg = sc.exchange_code_from_redirect(redirect_url)
+                if ok:
+                    self.scanner.refresh()
+                self._send_json_response({
+                    "status": "success" if ok else "error",
+                    "message": msg,
+                    "schwab_status": sc.get_status(),
+                })
+            else:
+                self._send_json_response({
+                    "status": "success",
+                    "message": "Schwab App Key & Secret saved to local git-ignored .env.",
+                    "schwab_status": sc.get_status(),
+                })
         else:
             self.send_error(404, "Unknown POST route")
 
@@ -1121,8 +1233,8 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_api_summary(self):
         watchlist = [asdict(r) for r in self.scanner.scan_ticker_universe()]
-        wheel = [asdict(r) for r in self.scanner.generate_wheel_matrix(all_tickers=False)]
-        leap = [asdict(r) for r in self.scanner.generate_leap_matrix()]
+        wheel = [asdict(r) for r in self.scanner.generate_wheel_matrix(all_tickers=True)]
+        leap = [asdict(r) for r in self.scanner.generate_leap_matrix(all_tickers=True)]
         alerts = self.sentinel.audit_manual_positions(emit_stderr=False)
 
         # 3x Leveraged Equities Strategy Engine (TQQQ, SOXL, SPXL)
@@ -1166,9 +1278,12 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
         summary = {
             "timestamp": datetime.datetime.now().isoformat(),
             "feed_mode": "100% LIVE EXCHANGE FEED (ZERO SIMULATION)",
+            "active_provider": self.scanner.market_client.active_provider,
+            "feed_warnings": self.scanner.market_client.recent_warnings,
+            "schwab_status": self.scanner.market_client.schwab_client.get_status(),
             "ticker_count": len(watchlist),
-            "wheel_opportunities": len(wheel),
-            "leap_opportunities": len(leap),
+            "wheel_opportunities": sum(1 for r in wheel if r.get("is_qualified")),
+            "leap_opportunities": sum(1 for r in leap if r.get("is_qualified")),
             "leap_put_opportunities": sum(1 for p in leap_puts if p.get("is_qualified")),
             "gamma_danger_count": len(alerts),
             "manual_positions_count": len(manual_positions),

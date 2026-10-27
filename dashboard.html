@@ -65,6 +65,10 @@
       </div>
 
       <div class="flex items-center flex-wrap gap-3">
+        <!-- Schwab Thinkorswim 7-Day Read-Only Auth Button -->
+        <button onclick="toggleSchwabDrawer()" id="schwabAuthBtn" class="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-black rounded-xl border-2 border-purple-300 shadow transition">
+          🔑 Schwab ToS (7d Auth)
+        </button>
         <!-- Font zoom toggle for reading glasses -->
         <button onclick="toggleLargeFont()" id="fontToggleBtn" class="px-4 py-2 bg-yellow-400 hover:bg-yellow-300 text-black text-sm font-black rounded-xl border-2 border-yellow-200 shadow transition">
           🔍 Glasses Mode (22px Zoom)
@@ -74,6 +78,55 @@
         </button>
       </div>
     </header>
+
+    <!-- SCHWAB / THINKORSWIM 7-DAY READ-ONLY OAUTH DRAWER (OPTIONALPHA STYLE) -->
+    <div id="schwabAuthDrawer" class="hidden bg-[#0e172a] border-2 border-purple-500 rounded-2xl p-6 shadow-2xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 pb-3">
+        <div>
+          <h3 class="text-lg md:text-xl font-black text-purple-300 flex items-center space-x-2">
+            <span>🔒</span>
+            <span>Schwab / Thinkorswim 7-Day Read-Only OAuth (Same as OptionAlpha)</span>
+          </h3>
+          <p class="text-xs md:text-sm font-bold text-slate-300 mt-1">
+            100% Safe &amp; Strictly <strong class="text-emerald-300">Read-Only (`GET` Market Data Only)</strong>. Zero order placement code exists. Tokens stay locally in git-ignored <code class="text-yellow-300">schwab_tokens.json</code>.
+          </p>
+        </div>
+        <span id="schwabDrawerStatusBadge" class="px-3 py-1 rounded-lg bg-slate-800 text-yellow-300 font-black text-xs border border-slate-600">
+          Status: Checking...
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+        <div>
+          <label class="block text-xs font-black uppercase text-slate-300 mb-1">1. Schwab App Key (Client ID)</label>
+          <input id="schwabAppKey" type="text" placeholder="Paste App Key from developer.schwab.com" class="w-full bg-slate-900 border-2 border-slate-600 rounded-xl px-3 py-2 text-white font-mono text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-black uppercase text-slate-300 mb-1">2. Schwab App Secret</label>
+          <input id="schwabAppSecret" type="password" placeholder="Paste App Secret (Saved locally to .env)" class="w-full bg-slate-900 border-2 border-slate-600 rounded-xl px-3 py-2 text-white font-mono text-sm">
+        </div>
+        <div class="flex items-end space-x-2">
+          <button onclick="saveSchwabKeysAndOpenLogin()" class="w-full px-4 py-2.5 bg-purple-500 hover:bg-purple-400 text-white font-black rounded-xl border-2 border-white shadow transition">
+            Step 1: Save Keys &amp; Open Schwab Login ↗
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end pt-2 border-t border-slate-800">
+        <div class="md:col-span-3">
+          <label class="block text-xs font-black uppercase text-cyan-300 mb-1">
+            Step 2: After logging into Schwab, copy &amp; paste the full Redirect URL (<code class="text-yellow-300">https://127.0.0.1/?code=...</code>) here:
+          </label>
+          <input id="schwabRedirectInput" type="text" placeholder="https://127.0.0.1/?code=C0.b2F1dGgyLmJkYy5zY2h3YWIuY29t...&session=..." class="w-full bg-slate-900 border-2 border-cyan-500 rounded-xl px-3 py-2 text-yellow-300 font-mono text-sm">
+        </div>
+        <div>
+          <button onclick="activateSchwabToken()" id="schwabActivateBtn" class="w-full px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl border-2 border-white shadow transition">
+            ✅ Activate 7-Day Token
+          </button>
+        </div>
+      </div>
+      <p id="schwabStatusMsg" class="text-xs font-bold text-cyan-300"></p>
+    </div>
 
     <!-- AUTO-SYNC CONTROLLER HUD BAR -->
     <div class="bg-[#0b1329] border-2 border-cyan-500/80 rounded-2xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-4">
@@ -165,12 +218,12 @@
       <div class="bg-[#0e172a] border-2 border-emerald-500 rounded-2xl p-5">
         <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-emerald-300">The Wheel (IVR &gt; 40%)</p>
         <p id="statWheelCount" class="text-3xl md:text-4xl font-black text-emerald-300 mt-1">1 Triggered</p>
-        <p class="text-xs font-bold text-slate-300 mt-1">TLT Qualified (1-SD Buffer)</p>
+        <p id="statWheelSub" class="text-xs font-bold text-slate-300 mt-1">TLT Qualified (1-SD Buffer)</p>
       </div>
       <div class="bg-[#0e172a] border-2 border-purple-500 rounded-2xl p-5">
         <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-purple-300">LEAPs (IVR &lt; 20% &amp; RSI &lt; 35)</p>
-        <p id="statLeapCount" class="text-3xl md:text-4xl font-black text-purple-300 mt-1">3 Qualified</p>
-        <p class="text-xs font-bold text-slate-300 mt-1">GLD, SLV, IAU (Commodities)</p>
+        <p id="statLeapCount" class="text-3xl md:text-4xl font-black text-purple-300 mt-1">1 Qualified</p>
+        <p id="statLeapSub" class="text-xs font-bold text-slate-300 mt-1">SLV Qualified &bull; GLD/IAU Watch (RSI 35.6)</p>
       </div>
       <div class="bg-[#0e172a] border-2 border-amber-500 rounded-2xl p-5">
         <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-amber-300">3x Leveraged ETFs</p>
@@ -239,19 +292,63 @@
           <tbody id="wheelTableBody" class="divide-y-2 divide-slate-700 font-bold">
             <tr class="bg-emerald-950/50 border-2 border-emerald-500">
               <td class="py-4 px-3 text-xl font-black text-white">TLT</td>
-              <td class="py-4 px-3 text-white font-mono text-lg">$81.34</td>
+              <td class="py-4 px-3 text-white font-mono text-lg">$81.68</td>
               <td class="py-4 px-3 text-emerald-300 font-mono">12.0% | IVR 100%</td>
-              <td class="py-4 px-3 text-emerald-300 font-mono">&plusmn;$3.42 (4.1% OTM)</td>
-              <td class="py-4 px-3 text-2xl font-black text-yellow-300 font-mono bg-slate-900/80 px-2">$78.00 Put</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">&plusmn;$3.45 (4.5% OTM)</td>
+              <td class="py-4 px-3 text-xl font-black text-yellow-300 font-mono bg-slate-900/80 px-2">$78.00 Put <span class="text-xs text-slate-300">(31d)</span></td>
               <td class="py-4 px-3 text-cyan-300 font-mono text-sm">TLT261127P00078000</td>
-              <td class="py-4 px-3 text-white font-mono">$0.31 / $0.32 ($0.32 mid)</td>
-              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$0.16</td>
-              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">4.5%</td>
-              <td class="py-4 px-3 text-right">
-                <span class="px-3 py-1.5 rounded-xl bg-emerald-500 text-black font-black text-xs border border-white">
-                  QUALIFIED TRIGGER
-                </span>
-              </td>
+              <td class="py-4 px-3 text-white font-mono">$0.22 / $0.24 ($0.23 mid)</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$0.12</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">3.5%</td>
+              <td class="py-4 px-3 text-right"><span class="px-3 py-1.5 rounded-xl bg-emerald-500 text-black font-black text-xs border border-white">QUALIFIED TRIGGER</span></td>
+            </tr>
+            <tr class="hover:bg-slate-800/50">
+              <td class="py-4 px-3 text-xl font-black text-white">QQQM</td>
+              <td class="py-4 px-3 text-white font-mono text-lg">$293.26</td>
+              <td class="py-4 px-3 text-slate-200 font-mono">19.0% | IVR 38%</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">&plusmn;$19.55 (6.2% OTM)</td>
+              <td class="py-4 px-3 text-xl font-black text-yellow-300 font-mono bg-slate-900/80 px-2">$275.00 Put <span class="text-xs text-slate-300">(52d)</span></td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-sm">QQQM261218P00275000</td>
+              <td class="py-4 px-3 text-white font-mono">$3.90 / $4.60 ($4.25 mid)</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$2.12</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">10.9%</td>
+              <td class="py-4 px-3 text-right"><span class="px-3 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">WATCH (IVR 38% | IVP 40%)</span></td>
+            </tr>
+            <tr class="hover:bg-slate-800/50">
+              <td class="py-4 px-3 text-xl font-black text-white">TQQQ</td>
+              <td class="py-4 px-3 text-white font-mono text-lg">$68.43</td>
+              <td class="py-4 px-3 text-slate-200 font-mono">57.5% | IVR 38%</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">&plusmn;$13.81 (19.6% OTM)</td>
+              <td class="py-4 px-3 text-xl font-black text-yellow-300 font-mono bg-slate-900/80 px-2">$55.00 Put <span class="text-xs text-slate-300">(31d)</span></td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-sm">TQQQ261127P00055000</td>
+              <td class="py-4 px-3 text-white font-mono">$1.41 / $1.58 ($1.50 mid)</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$0.75</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">32.1%</td>
+              <td class="py-4 px-3 text-right"><span class="px-3 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">WATCH (IVR 38% | IVP 40%)</span></td>
+            </tr>
+            <tr class="hover:bg-slate-800/50">
+              <td class="py-4 px-3 text-xl font-black text-white">QQQ</td>
+              <td class="py-4 px-3 text-white font-mono text-lg">$712.20</td>
+              <td class="py-4 px-3 text-slate-200 font-mono">19.0% | IVR 37%</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">&plusmn;$47.46 (6.6% OTM)</td>
+              <td class="py-4 px-3 text-xl font-black text-yellow-300 font-mono bg-slate-900/80 px-2">$665.00 Put <span class="text-xs text-slate-300">(31d)</span></td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-sm">QQQ261127P00665000</td>
+              <td class="py-4 px-3 text-white font-mono">$6.08 / $6.16 ($6.12 mid)</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$3.06</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">10.8%</td>
+              <td class="py-4 px-3 text-right"><span class="px-3 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">WATCH (IVR 37% | IVP 40%)</span></td>
+            </tr>
+            <tr class="hover:bg-slate-800/50">
+              <td class="py-4 px-3 text-xl font-black text-white">SPY</td>
+              <td class="py-4 px-3 text-white font-mono text-lg">$765.37</td>
+              <td class="py-4 px-3 text-slate-200 font-mono">10.5% | IVR 25%</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">&plusmn;$28.22 (3.7% OTM)</td>
+              <td class="py-4 px-3 text-xl font-black text-yellow-300 font-mono bg-slate-900/80 px-2">$737.00 Put <span class="text-xs text-slate-300">(31d)</span></td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-sm">SPY261127P00737000</td>
+              <td class="py-4 px-3 text-white font-mono">$5.16 / $5.21 ($5.19 mid)</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$2.60</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">8.3%</td>
+              <td class="py-4 px-3 text-right"><span class="px-3 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">WATCH (IVR 25% | IVP 30%)</span></td>
             </tr>
           </tbody>
         </table>
@@ -272,68 +369,118 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <!-- Card 1: GLD -->
-        <div class="bg-[#090d16] border-2 border-purple-500 rounded-xl p-5 space-y-3">
-          <div class="flex items-center justify-between">
-            <span class="text-2xl font-black text-white">GLD (Gold)</span>
-            <span class="px-3 py-1 rounded-full text-xs font-black bg-purple-500 text-white">QUALIFIED</span>
-          </div>
-          <p class="text-sm font-bold text-slate-300">Live Spot: <span class="text-yellow-300 text-lg font-mono">$366.61</span></p>
-          <div class="p-3 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono space-y-1">
-            <p><strong>IV Rank:</strong> <span class="text-purple-300 font-bold">18.0% (&lt; 20%)</span></p>
-            <p><strong>14-Day RSI:</strong> <span class="text-cyan-300 font-bold">34.1 (&lt; 35)</span></p>
-            <p><strong>Effective Leverage:</strong> <span class="text-emerald-300 font-bold">2.82x (Non-Decaying)</span></p>
-            <p><strong>Annual Cost Drag:</strong> <span class="text-emerald-300 font-bold">1.86% APR</span> (vs 9% margin)</p>
-          </div>
-          <div class="text-xs space-y-1 text-slate-200">
-            <p><strong>Long LEAP (340 DTE):</strong> <code class="text-purple-300 font-bold">GLD270930C00270000</code> ($270 Strike Call) @ mid $110.67</p>
-            <p><strong>Short PMCC (34 DTE):</strong> <code class="text-yellow-300 font-bold">GLD261127C00382000</code> ($382 Strike Call) @ mid $4.20</p>
-            <p><strong>Gap Risk Audit:</strong> <span class="text-emerald-400 font-bold">SAFE: Zero Upside Gap Risk</span> (Width $112 &gt; Debit $106.47)</p>
-            <p><strong>Capital Saved:</strong> <span class="text-emerald-300 font-bold">$25,594.00</span> vs 100 shares</p>
-          </div>
-        </div>
-
-        <!-- Card 2: SLV -->
+      <div id="leapTopCardsGrid" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Card 1: SLV -->
         <div class="bg-[#090d16] border-2 border-purple-500 rounded-xl p-5 space-y-3">
           <div class="flex items-center justify-between">
             <span class="text-2xl font-black text-white">SLV (Silver)</span>
             <span class="px-3 py-1 rounded-full text-xs font-black bg-purple-500 text-white">QUALIFIED</span>
           </div>
-          <p class="text-sm font-bold text-slate-300">Live Spot: <span class="text-yellow-300 text-lg font-mono">$48.72</span></p>
+          <p class="text-sm font-bold text-slate-300">Live Spot: <span class="text-yellow-300 text-lg font-mono">$48.66</span></p>
           <div class="p-3 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono space-y-1">
-            <p><strong>IV Rank:</strong> <span class="text-purple-300 font-bold">4.6% (&lt; 20%)</span></p>
-            <p><strong>14-Day RSI:</strong> <span class="text-cyan-300 font-bold">31.4 (&lt; 35)</span></p>
+            <p><strong>IV Rank:</strong> <span class="text-purple-300 font-bold">4.3% (&lt; 20%)</span></p>
+            <p><strong>14-Day RSI:</strong> <span class="text-cyan-300 font-bold">31.3 (&lt; 35)</span></p>
             <p><strong>Effective Leverage:</strong> <span class="text-emerald-300 font-bold">3.35x (Non-Decaying)</span></p>
             <p><strong>Annual Cost Drag:</strong> <span class="text-emerald-300 font-bold">2.14% APR</span></p>
           </div>
           <div class="text-xs space-y-1 text-slate-200">
             <p><strong>Long LEAP (340 DTE):</strong> <code class="text-purple-300 font-bold">SLV270930C00040000</code> ($40 Strike Call) @ mid $12.35</p>
             <p><strong>Short PMCC (34 DTE):</strong> <code class="text-yellow-300 font-bold">SLV261127C00052500</code> ($52.5 Strike Call) @ mid $0.98</p>
-            <p><strong>Gap Risk Audit:</strong> <span class="text-emerald-400 font-bold">SAFE: Zero Upside Gap Risk</span> (Width $12.5 &gt; Debit $11.37)</p>
-            <p><strong>Capital Saved:</strong> <span class="text-emerald-300 font-bold">$3,637.00</span> vs 100 shares</p>
+            <p><strong>Gap Risk Audit:</strong> <span class="text-emerald-400 font-bold">SAFE: Zero Upside Gap Risk</span></p>
+            <p><strong>Capital Saved:</strong> <span class="text-emerald-300 font-bold">$3,631.00</span> vs 100 shares</p>
+          </div>
+        </div>
+
+        <!-- Card 2: GLD -->
+        <div class="bg-[#090d16] border-2 border-slate-600 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-2xl font-black text-white">GLD (Gold)</span>
+            <span class="px-3 py-1 rounded-full text-xs font-black bg-slate-700 text-yellow-300">WATCH (RSI 35.6)</span>
+          </div>
+          <p class="text-sm font-bold text-slate-300">Live Spot: <span class="text-yellow-300 text-lg font-mono">$367.82</span></p>
+          <div class="p-3 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono space-y-1">
+            <p><strong>IV Rank:</strong> <span class="text-purple-300 font-bold">17.3% (&lt; 20% ✓)</span></p>
+            <p><strong>14-Day RSI:</strong> <span class="text-yellow-300 font-bold">35.6 (Needs &lt; 35)</span></p>
+            <p><strong>Effective Leverage:</strong> <span class="text-emerald-300 font-bold">2.82x (Non-Decaying)</span></p>
+            <p><strong>Annual Cost Drag:</strong> <span class="text-emerald-300 font-bold">1.86% APR</span></p>
+          </div>
+          <div class="text-xs space-y-1 text-slate-200">
+            <p><strong>Long LEAP (340 DTE):</strong> <code class="text-purple-300 font-bold">GLD270930C00270000</code> ($270 Strike Call) @ mid $110.67</p>
+            <p><strong>Short PMCC (34 DTE):</strong> <code class="text-yellow-300 font-bold">GLD261127C00382000</code> ($382 Strike Call) @ mid $4.20</p>
+            <p><strong>Gap Risk Audit:</strong> <span class="text-emerald-400 font-bold">SAFE: Zero Upside Gap Risk</span></p>
+            <p><strong>Capital Saved:</strong> <span class="text-emerald-300 font-bold">$25,715.00</span> vs 100 shares</p>
           </div>
         </div>
 
         <!-- Card 3: IAU -->
-        <div class="bg-[#090d16] border-2 border-purple-500 rounded-xl p-5 space-y-3">
+        <div class="bg-[#090d16] border-2 border-slate-600 rounded-xl p-5 space-y-3">
           <div class="flex items-center justify-between">
             <span class="text-2xl font-black text-white">IAU (iShares Gold)</span>
-            <span class="px-3 py-1 rounded-full text-xs font-black bg-purple-500 text-white">QUALIFIED</span>
+            <span class="px-3 py-1 rounded-full text-xs font-black bg-slate-700 text-yellow-300">WATCH (RSI 35.7)</span>
           </div>
-          <p class="text-sm font-bold text-slate-300">Live Spot: <span class="text-yellow-300 text-lg font-mono">$75.15</span></p>
+          <p class="text-sm font-bold text-slate-300">Live Spot: <span class="text-yellow-300 text-lg font-mono">$75.42</span></p>
           <div class="p-3 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono space-y-1">
-            <p><strong>IV Rank:</strong> <span class="text-purple-300 font-bold">18.2% (&lt; 20%)</span></p>
-            <p><strong>14-Day RSI:</strong> <span class="text-cyan-300 font-bold">34.1 (&lt; 35)</span></p>
+            <p><strong>IV Rank:</strong> <span class="text-purple-300 font-bold">17.6% (&lt; 20% ✓)</span></p>
+            <p><strong>14-Day RSI:</strong> <span class="text-yellow-300 font-bold">35.7 (Needs &lt; 35)</span></p>
             <p><strong>Effective Leverage:</strong> <span class="text-emerald-300 font-bold">2.32x (Non-Decaying)</span></p>
             <p><strong>Annual Cost Drag:</strong> <span class="text-emerald-300 font-bold">1.82% APR</span></p>
           </div>
           <div class="text-xs space-y-1 text-slate-200">
             <p><strong>Long LEAP (453 DTE):</strong> <code class="text-purple-300 font-bold">IAU280121C00052000</code> ($52 Strike Call) @ mid $27.50</p>
             <p><strong>Short PMCC (34 DTE):</strong> <code class="text-yellow-300 font-bold">IAU261127C00079000</code> ($79 Strike Call) @ mid $0.80</p>
-            <p><strong>Gap Risk Audit:</strong> <span class="text-emerald-400 font-bold">SAFE: Zero Upside Gap Risk</span> (Width $27.0 &gt; Debit $26.70)</p>
-            <p><strong>Capital Saved:</strong> <span class="text-emerald-300 font-bold">$4,765.00</span> vs 100 shares</p>
+            <p><strong>Gap Risk Audit:</strong> <span class="text-emerald-400 font-bold">SAFE: Zero Upside Gap Risk</span></p>
+            <p><strong>Capital Saved:</strong> <span class="text-emerald-300 font-bold">$4,792.00</span> vs 100 shares</p>
           </div>
+        </div>
+      </div>
+
+      <!-- BULLISH LEAP CALL (+0.85 DELTA) & PMCC (+0.30 DELTA) FULL MATRIX (ALL NON-LEVERAGED TICKERS) -->
+      <div class="pt-4 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 class="text-lg md:text-xl font-black text-purple-300">
+              📈 All Non-Leveraged Tickers: Bullish LEAP Call (+0.85 &Delta;) &amp; PMCC (+0.30 &Delta;) Matrix
+            </h3>
+            <p class="text-xs md:text-sm font-bold text-slate-300">
+              Covers all 10 non-leveraged assets (<code class="text-cyan-300">SPY, QQQ, XSP, QQQM, SPYM, GLD, SLV, IAU, IBIT, TLT</code>) &bull; Excludes 3x Leveraged ETFs (<code class="text-amber-300">TQQQ, SOXL, SPXL</code>)
+            </p>
+          </div>
+          <span class="px-3 py-1.5 rounded-xl bg-purple-600 text-white font-black text-xs border-2 border-white">
+            Structure: Buy +0.85&Delta; LEAP Call (340+ DTE) + Sell +0.30&Delta; Short Call (PMCC)
+          </span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm md:text-base border-collapse">
+            <thead>
+              <tr class="border-b-2 border-slate-600 text-yellow-300 font-black uppercase">
+                <th class="py-3 px-3">Symbol</th>
+                <th class="py-3 px-3">Live Spot</th>
+                <th class="py-3 px-3">14D RSI / IVR</th>
+                <th class="py-3 px-3 text-purple-300">+0.85&Delta; LEAP Call Strike</th>
+                <th class="py-3 px-3">Live LEAP Call Contract</th>
+                <th class="py-3 px-3 text-yellow-300">LEAP Mid</th>
+                <th class="py-3 px-3 text-emerald-300">Leverage / Drag</th>
+                <th class="py-3 px-3 text-cyan-300">Short PMCC (+0.30&Delta;)</th>
+                <th class="py-3 px-3">Gap Safety</th>
+                <th class="py-3 px-3 text-right">LEAP Status</th>
+              </tr>
+            </thead>
+            <tbody id="leapCallTableBody" class="divide-y-2 divide-slate-700 font-bold font-mono">
+              <tr class="bg-purple-950/50 border-2 border-purple-500">
+                <td class="py-3 px-3 font-sans text-xl font-black text-white">GLD</td>
+                <td class="py-3 px-3 text-yellow-300">$366.61</td>
+                <td class="py-3 px-3 text-cyan-300">RSI 34.1 | IVR 18.0%</td>
+                <td class="py-3 px-3 text-purple-300 font-black">$270.0 Call (340d)</td>
+                <td class="py-3 px-3 text-cyan-300 text-sm">GLD270930C00270000</td>
+                <td class="py-3 px-3 text-yellow-300">$110.67</td>
+                <td class="py-3 px-3 text-emerald-300">2.82x (1.86% APR)</td>
+                <td class="py-3 px-3 text-slate-200 text-sm">GLD261127C00382000 ($382.0 @ $4.20)</td>
+                <td class="py-3 px-3 text-emerald-400 text-xs font-sans font-black">SAFE: Zero Upside Gap Risk</td>
+                <td class="py-3 px-3 text-right font-sans"><span class="px-3 py-1 rounded-lg bg-purple-500 text-white text-xs font-black">QUALIFIED LEAP TRIGGER</span></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -764,6 +911,65 @@
       }, 1000);
     }
 
+    let loggedWarningsSet = new Set();
+
+    function toggleSchwabDrawer() {
+      const drawer = document.getElementById('schwabAuthDrawer');
+      if (drawer) drawer.classList.toggle('hidden');
+    }
+
+    async function saveSchwabKeysAndOpenLogin() {
+      const appKey = document.getElementById('schwabAppKey').value.trim();
+      const appSecret = document.getElementById('schwabAppSecret').value.trim();
+      const msgEl = document.getElementById('schwabStatusMsg');
+      try {
+        const res = await fetch('/api/schwab/reauth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app_key: appKey, app_secret: appSecret }),
+        });
+        const data = await res.json();
+        if (data.schwab_status && data.schwab_status.auth_url) {
+          window.open(data.schwab_status.auth_url, '_blank');
+          if (msgEl) msgEl.innerText = 'Opened Schwab login window. After signing in, copy the https://127.0.0.1/?code=... URL from the browser address bar and paste it into Step 2.';
+        } else {
+          if (msgEl) msgEl.innerText = 'Please enter your Schwab App Key & Secret first (from developer.schwab.com).';
+        }
+      } catch (e) {
+        if (msgEl) msgEl.innerText = 'Error connecting to local server: ' + e;
+      }
+    }
+
+    async function activateSchwabToken() {
+      const appKey = document.getElementById('schwabAppKey').value.trim();
+      const appSecret = document.getElementById('schwabAppSecret').value.trim();
+      const redirectUrl = document.getElementById('schwabRedirectInput').value.trim();
+      const msgEl = document.getElementById('schwabStatusMsg');
+      if (!redirectUrl) {
+        if (msgEl) msgEl.innerText = 'Paste the https://127.0.0.1/?code=... URL in Step 2 first.';
+        return;
+      }
+      if (msgEl) msgEl.innerText = '⏳ Exchanging authorization code for 7-day Read-Only token...';
+      try {
+        const res = await fetch('/api/schwab/reauth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app_key: appKey, app_secret: appSecret, redirect_url: redirectUrl }),
+        });
+        const data = await res.json();
+        if (msgEl) msgEl.innerText = data.message || '';
+        if (data.schwab_status) {
+          renderDashboardData({ schwab_status: data.schwab_status });
+        }
+        if (data.status === 'success') {
+          document.getElementById('schwabRedirectInput').value = '';
+          manualSync();
+        }
+      } catch (e) {
+        if (msgEl) msgEl.innerText = 'Error exchanging Schwab code: ' + e;
+      }
+    }
+
     async function manualSync() {
       const syncBtn = document.getElementById('syncBtn');
       syncBtn.innerText = '🔄 Syncing...';
@@ -773,7 +979,8 @@
           const data = await res.json();
           renderDashboardData(data);
           const nowStr = new Date().toLocaleTimeString();
-          document.getElementById('lastSyncTime').innerText = `${nowStr} (Live)`;
+          const providerLabel = data.active_provider || 'Live';
+          document.getElementById('lastSyncTime').innerText = `${nowStr} (${providerLabel})`;
         }
       } catch (err) {
         console.warn('API polling offline, fallback to cached live telemetry:', err);
@@ -892,6 +1099,37 @@
 
     function renderDashboardData(data) {
       if (!data) return;
+      if (data.feed_warnings && Array.isArray(data.feed_warnings)) {
+        data.feed_warnings.forEach(w => {
+          if (!loggedWarningsSet.has(w)) {
+            loggedWarningsSet.add(w);
+            console.warn('[Market Feed Fallback Warning]:', w);
+          }
+        });
+      }
+      if (data.schwab_status) {
+        const st = data.schwab_status;
+        const btn = document.getElementById('schwabAuthBtn');
+        const badge = document.getElementById('schwabDrawerStatusBadge');
+        const keyInput = document.getElementById('schwabAppKey');
+        const secInput = document.getElementById('schwabAppSecret');
+        if (badge) badge.innerText = st.status_label || 'Not Configured';
+        if (st.configured) {
+          if (keyInput && !keyInput.value) keyInput.placeholder = '✓ Loaded from .env (leave blank unless changing)';
+          if (secInput && !secInput.value) secInput.placeholder = '✓ Loaded from .env (leave blank unless changing)';
+        }
+        if (btn) {
+          if (st.connected) {
+            btn.innerText = `🟢 Schwab ToS (${st.days_remaining}d ${st.hours_remaining}h)`;
+            btn.className = 'px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-black rounded-xl border-2 border-white shadow transition';
+          } else if (st.configured) {
+            btn.innerText = '🟡 Activate Schwab ToS (7d Auth)';
+            btn.className = 'px-4 py-2 bg-amber-400 hover:bg-amber-300 text-black text-sm font-black rounded-xl border-2 border-white shadow transition';
+          } else {
+            btn.innerText = '🔑 Schwab ToS (7d Auth)';
+          }
+        }
+      }
       if (data.ticker_count) document.getElementById('statTickersCount').innerText = `${data.ticker_count} Assets`;
       if (data.wheel_opportunities !== undefined) document.getElementById('statWheelCount').innerText = `${data.wheel_opportunities} Triggered`;
       if (data.leap_opportunities !== undefined) document.getElementById('statLeapCount').innerText = `${data.leap_opportunities} Qualified`;
@@ -917,12 +1155,21 @@
               const whenBadge = row.when_to_sell
                 ? `<div class="text-cyan-300 font-black text-xs mb-1">⏰ ${row.when_to_sell}</div>`
                 : '';
+              const acctBreakdownHtml = (row.account_cc_breakdown && row.account_cc_breakdown.length > 0)
+                ? `<div class="mt-1 space-y-0.5 text-[11px] text-slate-200 font-mono">${row.account_cc_breakdown.map(b => `<div>• ${b}</div>`).join('')}</div>`
+                : `<div class="text-xs text-slate-300 font-bold">${row.accounts}</div>`;
+              const basisNote = (row.shares > 0 && row.avg_equity_cost_basis > 0)
+                ? `<br><span class="text-xs text-yellow-300">Avg Basis: $${row.avg_equity_cost_basis.toFixed(2)}/sh</span>`
+                : '';
+              const warningsHtml = (row.cost_basis_warnings && row.cost_basis_warnings.length > 0)
+                ? `<div class="mt-1.5 p-1.5 rounded bg-red-950/90 border border-red-500 text-amber-300 text-xs font-black space-y-0.5">${row.cost_basis_warnings.map(w => `<div>${w}</div>`).join('')}</div>`
+                : '';
               return `
                 <tr class="border-b border-slate-700 hover:bg-slate-800/40">
                   <td class="py-3 px-3 text-xl font-black text-white">${row.symbol}</td>
-                  <td class="py-3 px-3 text-xs text-slate-300 font-bold">${row.accounts}</td>
+                  <td class="py-3 px-3 text-xs text-slate-300 font-bold">${acctBreakdownHtml}</td>
                   <td class="py-3 px-3 font-mono text-yellow-300">$${row.spot.toFixed(2)} <span class="text-xs text-slate-300">(RSI ${row.rsi_14.toFixed(0)} | IVR ${row.iv_rank.toFixed(0)}%)</span></td>
-                  <td class="py-3 px-3 font-mono text-cyan-300 font-black">${row.shares} sh <span class="text-xs text-slate-300">($${row.equity_market_value.toLocaleString()})</span></td>
+                  <td class="py-3 px-3 font-mono text-cyan-300 font-black">${row.shares} sh <span class="text-xs text-slate-300">($${row.equity_market_value.toLocaleString()})</span>${basisNote}</td>
                   <td class="py-3 px-3 font-mono text-purple-300">+${row.long_leap_calls} LEAP / -${row.short_calls} CC / -${row.short_puts} CSP</td>
                   <td class="py-3 px-3 font-mono font-black ${deltaColor}">${row.net_delta_shares >= 0 ? '+' : ''}${row.net_delta_shares.toFixed(1)} sh &Delta; <span class="text-xs text-slate-300">($${Math.round(row.net_notional_exposure).toLocaleString()})</span></td>
                   <td class="py-3 px-3 font-mono">${ccBadge}</td>
@@ -932,7 +1179,7 @@
                     <span class="text-emerald-300">50% Exit: $${exit50} | ${row.cc_contract}</span>
                   </td>
                   <td class="py-3 px-3 font-mono font-black ${pnlColor}">$${row.total_pnl_dollars >= 0 ? '+' : ''}${row.total_pnl_dollars.toFixed(2)}</td>
-                  <td class="py-3 px-3 text-xs font-bold text-white">${whenBadge}<span class="text-yellow-200">${row.directive}</span></td>
+                  <td class="py-3 px-3 text-xs font-bold text-white">${whenBadge}<span class="text-yellow-200">${row.directive}</span>${warningsHtml}</td>
                 </tr>
               `;
             }).join('');
@@ -956,6 +1203,147 @@
               </table>
             `;
           }
+        }
+      }
+
+      // Update The Wheel Table (All 13 Tickers sorted with Qualified Triggers first)
+      if (data.wheel_recommendations && data.wheel_recommendations.length > 0) {
+        const wBody = document.getElementById('wheelTableBody');
+        if (wBody) {
+          wBody.innerHTML = '';
+          data.wheel_recommendations.forEach(w => {
+            const tr = document.createElement('tr');
+            tr.className = w.is_qualified ? 'bg-emerald-950/50 border-2 border-emerald-500' : 'hover:bg-slate-800/50';
+            const move1sd = w.expected_1sd_move !== undefined ? w.expected_1sd_move : (w.spot - w.exact_strike);
+            const ivPct = (w.iv * 100.0).toFixed(1);
+            const badge = w.is_qualified
+              ? '<span class="px-3 py-1.5 rounded-xl bg-emerald-500 text-black font-black text-xs border border-white">QUALIFIED TRIGGER</span>'
+              : `<span class="px-3 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">${w.status || ('WATCH (IVR ' + w.iv_rank.toFixed(0) + '%)')}</span>`;
+            tr.innerHTML = `
+              <td class="py-4 px-3 text-xl font-black text-white">${w.symbol}</td>
+              <td class="py-4 px-3 text-white font-mono text-lg">$${w.spot.toFixed(2)}</td>
+              <td class="py-4 px-3 ${w.is_qualified ? 'text-emerald-300' : 'text-slate-200'} font-mono">${ivPct}% | IVR ${w.iv_rank.toFixed(0)}%</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono">&plusmn;$${move1sd.toFixed(2)} (${w.downside_buffer_pct.toFixed(1)}% OTM)</td>
+              <td class="py-4 px-3 text-xl font-black text-yellow-300 font-mono bg-slate-900/80 px-2">$${w.snapped_strike.toFixed(2)} Put <span class="text-xs text-slate-300">(${w.target_dte}d)</span></td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-sm">${w.live_contract}</td>
+              <td class="py-4 px-3 text-white font-mono">$${w.bid.toFixed(2)} / $${w.ask.toFixed(2)} ($${w.mid.toFixed(2)} mid)</td>
+              <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$${w.profit_target_50.toFixed(2)}</td>
+              <td class="py-4 px-3 text-cyan-300 font-mono text-lg">${w.annualized_roc.toFixed(1)}%</td>
+              <td class="py-4 px-3 text-right">${badge}</td>
+            `;
+            wBody.appendChild(tr);
+          });
+        }
+      }
+
+      // Update Live Multi-Asset Telemetry Matrix (All 13 Tickers)
+      if (data.watchlist && data.watchlist.length > 0) {
+        const tBody = document.getElementById('telemetryTableBody');
+        if (tBody) {
+          tBody.innerHTML = '';
+          data.watchlist.forEach(t => {
+            const tr = document.createElement('tr');
+            if (t.wheel_qualified) tr.className = 'bg-emerald-950/40';
+            else if (t.leap_qualified) tr.className = 'bg-purple-950/40';
+            const catLabel = t.is_tax_advantaged ? 'Sec 1256 (60/40)' : (t.is_leveraged ? '3x Leveraged' : t.category.split(' ')[0]);
+            const catColor = t.is_tax_advantaged ? 'text-cyan-300' : (t.is_leveraged ? 'text-amber-300' : 'text-slate-200');
+            const wheelCol = t.wheel_qualified
+              ? '<span class="text-emerald-300 font-black">WHEEL TRIGGERED</span>'
+              : '<span class="text-yellow-300 font-bold">Monitor</span>';
+            let levCol = '<span class="text-slate-200 font-bold">Watchlist</span>';
+            if (t.is_leveraged) levCol = '<span class="text-amber-300 font-bold">0.20&Delta; CSP</span>';
+            else if (t.leap_qualified) levCol = '<span class="text-purple-300 font-black">LEAP QUALIFIED</span>';
+            tr.innerHTML = `
+              <td class="py-3 px-3 font-sans font-black text-white text-lg">${t.symbol}</td>
+              <td class="py-3 px-3 font-sans ${catColor}">${catLabel}</td>
+              <td class="py-3 px-3 text-yellow-300 font-black">$${t.spot.toFixed(2)}</td>
+              <td class="py-3 px-3">${(t.iv * 100.0).toFixed(1)}%</td>
+              <td class="py-3 px-3 ${t.wheel_qualified ? 'text-emerald-300 font-black' : (t.leap_qualified ? 'text-purple-300 font-black' : '')}">${t.iv_rank.toFixed(1)}%</td>
+              <td class="py-3 px-3">${t.iv_percentile_6m.toFixed(1)}%</td>
+              <td class="py-3 px-3 ${t.leap_qualified ? 'text-cyan-300 font-black' : ''}">${t.rsi.toFixed(1)}</td>
+              <td class="py-3 px-3">${wheelCol}</td>
+              <td class="py-3 px-3">${levCol}</td>
+            `;
+            tBody.appendChild(tr);
+          });
+        }
+      }
+
+      // Update Bullish LEAP Long Call + PMCC Table and Top Spotlight Cards if present
+      if (data.leap_recommendations && data.leap_recommendations.length > 0) {
+        const qualLeaps = data.leap_recommendations.filter(l => l.is_qualified).map(l => l.symbol);
+        const watchLeaps = data.leap_recommendations.filter(l => !l.is_qualified).slice(0, 2).map(l => `${l.symbol} (RSI ${l.rsi.toFixed(1)})`);
+        const leapSubEl = document.getElementById('statLeapSub');
+        if (leapSubEl) {
+          if (qualLeaps.length > 0 && watchLeaps.length > 0) {
+            leapSubEl.innerText = `${qualLeaps.join(', ')} Qualified • Watch: ${watchLeaps.join(', ')}`;
+          } else if (qualLeaps.length > 0) {
+            leapSubEl.innerText = `${qualLeaps.join(', ')} Qualified`;
+          } else {
+            leapSubEl.innerText = `Watch: ${watchLeaps.join(', ')}`;
+          }
+        }
+        const leapCountEl = document.getElementById('statLeapCount');
+        if (leapCountEl) leapCountEl.innerText = `${qualLeaps.length} Qualified`;
+
+        const topGrid = document.getElementById('leapTopCardsGrid');
+        if (topGrid) {
+          topGrid.innerHTML = data.leap_recommendations.slice(0, 3).map(lc => {
+            const borderCls = lc.is_qualified ? 'border-purple-500' : 'border-slate-600';
+            const badgeHtml = lc.is_qualified
+              ? '<span class="px-3 py-1 rounded-full text-xs font-black bg-purple-500 text-white">QUALIFIED</span>'
+              : `<span class="px-3 py-1 rounded-full text-xs font-black bg-slate-700 text-yellow-300">WATCH (RSI ${lc.rsi.toFixed(1)})</span>`;
+            const ivrHint = lc.iv_rank < 20.0 ? `<span class="text-purple-300 font-bold">${lc.iv_rank.toFixed(1)}% (&lt; 20% ✓)</span>` : `<span class="text-yellow-300 font-bold">${lc.iv_rank.toFixed(1)}% (Needs &lt; 20%)</span>`;
+            const rsiHint = lc.rsi < 35.0 ? `<span class="text-cyan-300 font-bold">${lc.rsi.toFixed(1)} (&lt; 35 ✓)</span>` : `<span class="text-yellow-300 font-bold">${lc.rsi.toFixed(1)} (Needs &lt; 35)</span>`;
+            const gapCls = lc.pmcc_gap_safety && lc.pmcc_gap_safety.startsWith('SAFE') ? 'text-emerald-400' : 'text-amber-300';
+            return `
+              <div class="bg-[#090d16] border-2 ${borderCls} rounded-xl p-5 space-y-3">
+                <div class="flex items-center justify-between">
+                  <span class="text-2xl font-black text-white">${lc.symbol}</span>
+                  ${badgeHtml}
+                </div>
+                <p class="text-sm font-bold text-slate-300">Live Spot: <span class="text-yellow-300 text-lg font-mono">$${lc.spot.toFixed(2)}</span></p>
+                <div class="p-3 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono space-y-1">
+                  <p><strong>IV Rank:</strong> ${ivrHint}</p>
+                  <p><strong>14-Day RSI:</strong> ${rsiHint}</p>
+                  <p><strong>Effective Leverage:</strong> <span class="text-emerald-300 font-bold">${lc.effective_leverage.toFixed(2)}x (Non-Decaying)</span></p>
+                  <p><strong>Annual Cost Drag:</strong> <span class="text-emerald-300 font-bold">${lc.annual_drag_pct.toFixed(2)}% APR</span></p>
+                </div>
+                <div class="text-xs space-y-1 text-slate-200">
+                  <p><strong>Long LEAP (${lc.leap_target_dte} DTE):</strong> <code class="text-purple-300 font-bold">${lc.leap_contract}</code> ($${lc.leap_strike.toFixed(1)} Call) @ mid $${lc.leap_mid.toFixed(2)}</p>
+                  <p><strong>Short PMCC (${lc.pmcc_target_dte} DTE):</strong> <code class="text-yellow-300 font-bold">${lc.pmcc_contract}</code> ($${lc.pmcc_strike.toFixed(1)} Call) @ mid $${lc.pmcc_mid.toFixed(2)}</p>
+                  <p><strong>Gap Risk Audit:</strong> <span class="${gapCls} font-bold">${lc.pmcc_gap_safety}</span></p>
+                  <p><strong>Capital Saved:</strong> <span class="text-emerald-300 font-bold">$${lc.capital_saved_vs_shares.toLocaleString()}</span> vs 100 shares</p>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+
+        const lcBody = document.getElementById('leapCallTableBody');
+        if (lcBody) {
+          lcBody.innerHTML = '';
+          data.leap_recommendations.forEach(lc => {
+            const tr = document.createElement('tr');
+            tr.className = lc.is_qualified ? 'bg-purple-950/50 border-2 border-purple-500' : 'hover:bg-slate-800/50';
+            const badge = lc.is_qualified
+              ? '<span class="px-3 py-1 rounded-lg bg-purple-500 text-white text-xs font-black">QUALIFIED LEAP TRIGGER</span>'
+              : `<span class="px-3 py-1 rounded-lg bg-slate-700 text-yellow-300 text-xs font-black">WATCH (RSI ${lc.rsi.toFixed(1)} | IVR ${lc.iv_rank.toFixed(0)}%)</span>`;
+            const gapColor = lc.pmcc_gap_safety && lc.pmcc_gap_safety.startsWith('SAFE') ? 'text-emerald-400' : 'text-amber-300';
+            tr.innerHTML = `
+              <td class="py-3 px-3 font-sans text-xl font-black text-white">${lc.symbol}</td>
+              <td class="py-3 px-3 text-yellow-300">$${lc.spot.toFixed(2)}</td>
+              <td class="py-3 px-3 text-slate-200">RSI ${lc.rsi.toFixed(1)} | IVR ${lc.iv_rank.toFixed(1)}%</td>
+              <td class="py-3 px-3 text-purple-300 font-black">$${lc.leap_strike.toFixed(1)} Call (${lc.leap_target_dte}d)</td>
+              <td class="py-3 px-3 text-cyan-300 text-sm">${lc.leap_contract}</td>
+              <td class="py-3 px-3 text-yellow-300">$${lc.leap_mid.toFixed(2)}</td>
+              <td class="py-3 px-3 text-emerald-300">${lc.effective_leverage.toFixed(2)}x <span class="text-xs text-slate-300">(${lc.annual_drag_pct.toFixed(2)}% APR)</span></td>
+              <td class="py-3 px-3 text-slate-200 text-sm">${lc.pmcc_contract} ($${lc.pmcc_strike.toFixed(1)} @ $${lc.pmcc_mid.toFixed(2)})</td>
+              <td class="py-3 px-3 ${gapColor} text-xs font-sans font-black">${lc.pmcc_gap_safety}</td>
+              <td class="py-3 px-3 text-right font-sans">${badge}</td>
+            `;
+            lcBody.appendChild(tr);
+          });
         }
       }
 
@@ -1078,12 +1466,14 @@
       }
     }
 
-    // Initialize: Load positions & equity exposure in <10ms first, then sync full telemetry
+    // Initialize: Load positions, equity exposure, wheel & leap matrix in <10ms first, then sync full telemetry
     window.addEventListener('DOMContentLoaded', async () => {
       try {
-        const [posRes, eqRes] = await Promise.all([
+        const [posRes, eqRes, wheelRes, leapRes] = await Promise.all([
           fetch('/api/positions'),
           fetch('/api/equity'),
+          fetch('/api/wheel'),
+          fetch('/api/leap'),
         ]);
         const payload = {};
         if (posRes.ok) {
@@ -1093,6 +1483,12 @@
         }
         if (eqRes.ok) {
           payload.equity_exposure = await eqRes.json();
+        }
+        if (wheelRes.ok) {
+          payload.wheel_recommendations = await wheelRes.json();
+        }
+        if (leapRes.ok) {
+          payload.leap_recommendations = await leapRes.json();
         }
         renderDashboardData(payload);
       } catch (e) {}

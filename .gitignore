@@ -1,7 +1,16 @@
 __pycache__/
 *.py[cod]
 *$py.class
+# Environment & API Secrets (NEVER COMMIT)
 .env
+.env.*
+!.env.example
+schwab_tokens.json
+*tokens*.json
+*secret*
+*credentials*
+*.key
+*.pem
 .venv/
 venv/
 *.log

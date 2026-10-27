@@ -66,8 +66,8 @@ class TestUniverseConfiguration(unittest.TestCase):
         self.assertTrue(WATCHLIST_MATRIX["TQQQ"].is_leveraged)
         self.assertTrue(WATCHLIST_MATRIX["SOXL"].is_leveraged)
         self.assertTrue(WATCHLIST_MATRIX["SPXL"].is_leveraged)
-        self.assertFalse(WATCHLIST_MATRIX["SPY"].is_leveraged)
-        self.assertFalse(WATCHLIST_MATRIX["GLD"].is_leveraged)
+        for non_lev in ["SPY", "QQQ", "XSP", "QQQM", "SPYM", "GLD", "SLV", "IAU", "IBIT", "TLT"]:
+            self.assertFalse(WATCHLIST_MATRIX[non_lev].is_leveraged, f"{non_lev} should be eligible for LEAP/PMCC")
 
     def test_asset_config_alignment(self):
         self.assertEqual(set(ASSET_CONFIG.keys()), set(WATCHLIST_MATRIX.keys()))
@@ -79,6 +79,13 @@ class TestUniverseConfiguration(unittest.TestCase):
         types = {p.option_type for p in positions}
         self.assertIn("EQUITY", types)
         self.assertTrue("PUT" in types or "CALL" in types)
+
+    def test_schwab_readonly_client_safety(self):
+        client = LiveMarketClient()
+        status = client.schwab_client.get_status()
+        self.assertEqual(status["mode"], "100% READ-ONLY (GET Market Data Only)")
+        self.assertIn("connected", status)
+        self.assertIn("days_remaining", status)
 
 
 if __name__ == "__main__":
