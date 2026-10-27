@@ -57,6 +57,9 @@
             <span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-400 text-black border-2 border-white shadow">
               100% REAL LIVE DATA
             </span>
+            <span id="headerProviderBadge" class="px-3 py-1 rounded-full text-xs font-black bg-purple-600 text-white border-2 border-purple-300 shadow">
+              📡 Feed: Connecting...
+            </span>
           </div>
           <p class="text-sm font-bold text-slate-300 mt-1">
             Institutional Quantitative Guidance • High-Contrast Mode for Clear Reading (+2.00 Glasses)
@@ -871,6 +874,19 @@
           const nowStr = new Date().toLocaleTimeString();
           const providerLabel = data.active_provider || 'Live';
           document.getElementById('lastSyncTime').innerText = `${nowStr} (${providerLabel})`;
+          const badge = document.getElementById('headerProviderBadge');
+          if (badge) {
+            badge.innerText = `📡 Feed: ${providerLabel}`;
+            if (providerLabel.includes('Schwab')) {
+              badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-purple-600 text-white border-2 border-purple-300 shadow';
+            } else if (providerLabel.includes('Yahoo')) {
+              badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-blue-600 text-white border-2 border-blue-300 shadow';
+            } else if (providerLabel.includes('Twelve')) {
+              badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-emerald-600 text-white border-2 border-emerald-300 shadow';
+            } else {
+              badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-slate-700 text-yellow-300 border-2 border-slate-500 shadow';
+            }
+          }
         }
       } catch (err) {
         console.warn('API polling offline, fallback to cached live telemetry:', err);
