@@ -152,6 +152,14 @@ class SQLiteMarketCache:
         except Exception as e:
             sys.stderr.write(f"[CACHE-INIT WARNING]: SQLite cache initialization fallback: {e}\n")
 
+    def clear(self):
+        try:
+            with self._lock, sqlite3.connect(self.db_path) as conn:
+                conn.execute("DELETE FROM kv_cache")
+                conn.commit()
+        except Exception:
+            pass
+
     def get(self, key: str, max_age_seconds: Optional[float] = None) -> Optional[Any]:
         try:
             with self._lock, sqlite3.connect(self.db_path) as conn:
@@ -542,7 +550,7 @@ class LiveMarketClient:
     4. Full try-except Error Resilience with descriptive fallback messages
     """
 
-    def __init__(self, cache_ttl_seconds: int = 900):
+    def __init__(self, cache_ttl_seconds: int = 45):
         self.cache_ttl = cache_ttl_seconds
         self._session: Optional[requests.Session] = None
         self._crumb: Optional[str] = None
