@@ -502,6 +502,15 @@ class LiveMarketClient:
         ).strip()
         self.recent_warnings: List[str] = []
         self.active_provider: str = "Live Feed"
+        self.verbose_feed_logs: bool = (
+            os.environ.get("VERBOSE_FEED_LOGS", "").lower() in ("1", "true", "yes")
+            or _load_local_dotenv().get("VERBOSE_FEED_LOGS", "").lower() in ("1", "true", "yes")
+        )
+
+    def _log_feed(self, provider: str, symbol: str, details: str):
+        if self.verbose_feed_logs:
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            print(f"[{ts}] [MARKET-FEED: {provider}] {symbol.upper()} -> {details}")
 
     def _log_warning(self, msg: str):
         sys.stderr.write(f"{msg}\n")
@@ -560,6 +569,8 @@ class LiveMarketClient:
         schwab_chart = self.schwab_client.get_chart_history(symbol)
         if schwab_chart:
             self.active_provider = "Schwab ToS Live (Read-Only)"
+            spot_val = schwab_chart.get("meta", {}).get("regularMarketPrice", 0.0)
+            self._log_feed("Schwab ToS", symbol, f"Spot ${spot_val:.2f} (Daily candles fetched)")
             self._cache_quotes[yahoo_sym] = (now, schwab_chart)
             self.sqlite_cache.set(f"CHART_{yahoo_sym}", schwab_chart)
             return schwab_chart
@@ -569,6 +580,8 @@ class LiveMarketClient:
             stale_cached = self.sqlite_cache.get(f"CHART_{yahoo_sym}", max_age_seconds=None)
             if stale_cached:
                 self.active_provider = "SQLite Cached Fallback (Yahoo/Twelve Offline)"
+                spot_val = stale_cached.get("meta", {}).get("regularMarketPrice", 0.0)
+                self._log_feed("SQLite Cache", symbol, f"Spot ${spot_val:.2f} (Offline backoff fallback)")
                 self._cache_quotes[yahoo_sym] = (now, stale_cached)
                 return stale_cached
 
@@ -584,6 +597,8 @@ class LiveMarketClient:
                 if "chart" in data and data["chart"]["result"]:
                     result = data["chart"]["result"][0]
                     self.active_provider = "Yahoo Finance Live"
+                    spot_val = result.get("meta", {}).get("regularMarketPrice", 0.0)
+                    self._log_feed("Yahoo Finance", symbol, f"Spot ${spot_val:.2f} (v8 chart candles)")
                     self._cache_quotes[yahoo_sym] = (now, result)
                     self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
                     return result
@@ -616,6 +631,7 @@ class LiveMarketClient:
                             "indicators": {"quote": [{"close": closes}]},
                         }
                         self.active_provider = "Twelve Data Live"
+                        self._log_feed("Twelve Data", symbol, f"Spot ${closes[-1]:.2f} (252-day series)")
                         self._cache_quotes[yahoo_sym] = (now, result)
                         self.sqlite_cache.set(f"CHART_{yahoo_sym}", result)
                         return result
@@ -628,6 +644,8 @@ class LiveMarketClient:
         stale_cached = self.sqlite_cache.get(f"CHART_{yahoo_sym}", max_age_seconds=None)
         if stale_cached:
             self.active_provider = "SQLite Cached Fallback (Upstream Offline)"
+            spot_val = stale_cached.get("meta", {}).get("regularMarketPrice", 0.0)
+            self._log_feed("SQLite Cache", symbol, f"Spot ${spot_val:.2f} (Upstream offline fallback)")
             self._cache_quotes[yahoo_sym] = (now, stale_cached)
             return stale_cached
 
@@ -729,6 +747,7 @@ class LiveMarketClient:
         # Provider 0: Schwab / Thinkorswim Read-Only Official API (if connected)
         schwab_chain = self.schwab_client.get_option_chain(symbol, target_dte_min, target_dte_max)
         if schwab_chain:
+            self._log_feed("Schwab ToS", symbol, f"Option Chain: {len(schwab_chain)} contracts ({target_dte_min}-{target_dte_max} DTE)")
             self._cache_chains[cache_key] = (now, schwab_chain)
             self.sqlite_cache.set(f"CHAIN_{cache_key}", [asdict(c) for c in schwab_chain])
             return schwab_chain
@@ -804,6 +823,7 @@ class LiveMarketClient:
                         contracts.append(c)
 
             if contracts:
+                self._log_feed("Yahoo Finance", symbol, f"Option Chain: {len(contracts)} contracts ({target_dte_min}-{target_dte_max} DTE)")
                 self._cache_chains[cache_key] = (now, contracts)
                 self.sqlite_cache.set(f"CHAIN_{cache_key}", [asdict(c) for c in contracts])
 
@@ -930,6 +950,7 @@ class LiveMarketClient:
                         contracts.append(c)
 
             if contracts:
+                self._log_feed("Yahoo Finance", symbol, f"Option Chain: {len(contracts)} contracts ({target_dte_min}-{target_dte_max} DTE)")
                 self._cache_chains[cache_key] = (now, contracts)
                 self.sqlite_cache.set(f"CHAIN_{cache_key}", [asdict(c) for c in contracts])
 
