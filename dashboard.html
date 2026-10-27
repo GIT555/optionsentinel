@@ -65,10 +65,6 @@
       </div>
 
       <div class="flex items-center flex-wrap gap-3">
-        <!-- Schwab Thinkorswim 7-Day Read-Only Auth Button -->
-        <button onclick="toggleSchwabDrawer()" id="schwabAuthBtn" class="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-black rounded-xl border-2 border-purple-300 shadow transition">
-          🔑 Schwab ToS (7d Auth)
-        </button>
         <!-- Font zoom toggle for reading glasses -->
         <button onclick="toggleLargeFont()" id="fontToggleBtn" class="px-4 py-2 bg-yellow-400 hover:bg-yellow-300 text-black text-sm font-black rounded-xl border-2 border-yellow-200 shadow transition">
           🔍 Glasses Mode (22px Zoom)
@@ -78,47 +74,6 @@
         </button>
       </div>
     </header>
-
-    <!-- SCHWAB / THINKORSWIM 7-DAY READ-ONLY OAUTH DRAWER (OPTIONALPHA STYLE) -->
-    <div id="schwabAuthDrawer" class="hidden bg-[#0e172a] border-2 border-purple-500 rounded-2xl p-6 shadow-2xl space-y-4">
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 pb-3">
-        <div>
-          <h3 class="text-lg md:text-xl font-black text-purple-300 flex items-center space-x-2">
-            <span>🔒</span>
-            <span>Schwab / Thinkorswim 7-Day Read-Only OAuth (Same as OptionAlpha)</span>
-          </h3>
-          <p class="text-xs md:text-sm font-bold text-slate-300 mt-1">
-            100% Safe &amp; Strictly <strong class="text-emerald-300">Read-Only (`GET` Market Data Only)</strong>. App Key &amp; Secret stay strictly in your local <code class="text-yellow-300">.env</code> (never entered or exposed in HTML).
-          </p>
-        </div>
-        <span id="schwabDrawerStatusBadge" class="px-3 py-1 rounded-lg bg-slate-800 text-yellow-300 font-black text-xs border border-slate-600">
-          Status: Checking...
-        </span>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-        <div>
-          <label class="block text-xs font-black uppercase text-purple-300 mb-1">
-            Step 1: Authenticate with Schwab
-          </label>
-          <button onclick="openSchwabLogin()" class="w-full px-4 py-2.5 bg-purple-500 hover:bg-purple-400 text-white font-black rounded-xl border-2 border-white shadow transition">
-            1. Open Schwab Login ↗
-          </button>
-        </div>
-        <div class="md:col-span-2">
-          <label class="block text-xs font-black uppercase text-cyan-300 mb-1">
-            Step 2: Paste Redirect URL (<code class="text-yellow-300">https://127.0.0.1/?code=...</code>):
-          </label>
-          <input id="schwabRedirectInput" type="text" placeholder="https://127.0.0.1/?code=C0.b2F1dGgyLmJkYy5zY2h3YWIuY29t...&session=..." class="w-full bg-slate-900 border-2 border-cyan-500 rounded-xl px-3 py-2 text-yellow-300 font-mono text-sm">
-        </div>
-        <div>
-          <button onclick="activateSchwabToken()" id="schwabActivateBtn" class="w-full px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl border-2 border-white shadow transition">
-            ✅ 2. Activate 7-Day Token
-          </button>
-        </div>
-      </div>
-      <p id="schwabStatusMsg" class="text-xs font-bold text-cyan-300"></p>
-    </div>
 
     <!-- AUTO-SYNC CONTROLLER HUD BAR -->
     <div class="bg-[#0b1329] border-2 border-cyan-500/80 rounded-2xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-4">
@@ -905,47 +860,6 @@
 
     let loggedWarningsSet = new Set();
 
-    function toggleSchwabDrawer() {
-      const drawer = document.getElementById('schwabAuthDrawer');
-      if (drawer) drawer.classList.toggle('hidden');
-    }
-
-    function openSchwabLogin() {
-      const msgEl = document.getElementById('schwabStatusMsg');
-      window.open('/api/schwab/login', '_blank');
-      if (msgEl) {
-        msgEl.innerText = 'Opened Schwab login window using credentials from local .env. After signing in, copy the https://127.0.0.1/?code=... URL from the address bar and paste it into Step 2.';
-      }
-    }
-
-    async function activateSchwabToken() {
-      const redirectUrl = document.getElementById('schwabRedirectInput').value.trim();
-      const msgEl = document.getElementById('schwabStatusMsg');
-      if (!redirectUrl) {
-        if (msgEl) msgEl.innerText = 'Paste the https://127.0.0.1/?code=... URL in Step 2 first.';
-        return;
-      }
-      if (msgEl) msgEl.innerText = '⏳ Exchanging authorization code for 7-day Read-Only token...';
-      try {
-        const res = await fetch('/api/schwab/reauth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ redirect_url: redirectUrl }),
-        });
-        const data = await res.json();
-        if (msgEl) msgEl.innerText = data.message || '';
-        if (data.schwab_status) {
-          renderDashboardData({ schwab_status: data.schwab_status });
-        }
-        if (data.status === 'success') {
-          document.getElementById('schwabRedirectInput').value = '';
-          manualSync();
-        }
-      } catch (e) {
-        if (msgEl) msgEl.innerText = 'Error exchanging Schwab code: ' + e;
-      }
-    }
-
     async function manualSync() {
       const syncBtn = document.getElementById('syncBtn');
       syncBtn.innerText = '🔄 Syncing...';
@@ -1082,23 +996,6 @@
             console.warn('[Market Feed Fallback Warning]:', w);
           }
         });
-      }
-      if (data.schwab_status) {
-        const st = data.schwab_status;
-        const btn = document.getElementById('schwabAuthBtn');
-        const badge = document.getElementById('schwabDrawerStatusBadge');
-        if (badge) badge.innerText = st.status_label || 'Not Configured';
-        if (btn) {
-          if (st.connected) {
-            btn.innerText = `🟢 Schwab ToS (${st.days_remaining}d ${st.hours_remaining}h)`;
-            btn.className = 'px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-black rounded-xl border-2 border-white shadow transition';
-          } else if (st.configured) {
-            btn.innerText = '🟡 Activate Schwab ToS (7d Auth)';
-            btn.className = 'px-4 py-2 bg-amber-400 hover:bg-amber-300 text-black text-sm font-black rounded-xl border-2 border-white shadow transition';
-          } else {
-            btn.innerText = '🔑 Schwab ToS (7d Auth)';
-          }
-        }
       }
       if (data.ticker_count) document.getElementById('statTickersCount').innerText = `${data.ticker_count} Assets`;
       if (data.wheel_opportunities !== undefined) document.getElementById('statWheelCount').innerText = `${data.wheel_opportunities} Triggered`;
