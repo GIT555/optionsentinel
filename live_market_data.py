@@ -391,27 +391,51 @@ class SchwabReadOnlyClient:
         return None
 
     def get_chart_history(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Read-only GET /marketdata/v1/pricehistory for 1Y daily candles."""
+        """Read-only GET /marketdata/v1/pricehistory with live quote fallback for real-time spot."""
         token = self._get_valid_access_token()
         if not token:
             return None
         schwab_sym = self.SCHWAB_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
+
+        # Include endDate in milliseconds and needExtendedHoursData so the current trading session candle is included
+        end_ms = int(time.time() * 1000)
         url = (
             "https://api.schwabapi.com/marketdata/v1/pricehistory"
             f"?symbol={urllib.parse.quote(schwab_sym)}&periodType=year&period=1&frequencyType=daily&frequency=1"
+            f"&endDate={end_ms}&needExtendedHoursData=true&needPreviousClose=true"
         )
         try:
             self.limiter.acquire()
-            r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=4)
+            r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=5)
             if r.status_code == 200:
                 candles = r.json().get("candles", [])
                 if candles:
                     closes = [float(c["close"]) for c in candles if "close" in c]
                     if closes:
+                        # Attempt to query live /quotes for real-time tick price
+                        live_spot = closes[-1]
+                        prev_close = closes[-2] if len(closes) > 1 else closes[-1]
+                        try:
+                            q_url = f"https://api.schwabapi.com/marketdata/v1/{urllib.parse.quote(schwab_sym)}/quotes?fields=quote"
+                            self.limiter.acquire()
+                            q_resp = requests.get(q_url, headers={"Authorization": f"Bearer {token}"}, timeout=3)
+                            if q_resp.status_code == 200:
+                                q_data = q_resp.json()
+                                sym_quote = q_data.get(schwab_sym, {}).get("quote", {})
+                                q_last = float(sym_quote.get("lastPrice") or sym_quote.get("regularMarketLastPrice") or 0.0)
+                                q_prev = float(sym_quote.get("closePrice") or 0.0)
+                                if q_last > 0:
+                                    live_spot = q_last
+                                    closes[-1] = q_last
+                                if q_prev > 0:
+                                    prev_close = q_prev
+                        except Exception:
+                            pass
+
                         return {
                             "meta": {
-                                "regularMarketPrice": closes[-1],
-                                "previousClose": closes[-2] if len(closes) > 1 else closes[-1],
+                                "regularMarketPrice": live_spot,
+                                "previousClose": prev_close,
                                 "provider": "Schwab ToS API",
                             },
                             "indicators": {"quote": [{"close": closes}]},
