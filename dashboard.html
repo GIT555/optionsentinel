@@ -160,7 +160,7 @@
     </div>
 
     <!-- Quick Stats Cards (High-Contrast Large Text) -->
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
       <div class="bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-5">
         <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-300">Tickers Monitored</p>
         <p id="statTickersCount" class="text-3xl md:text-4xl font-black text-white mt-1">13 Assets</p>
@@ -181,7 +181,12 @@
         <p class="text-3xl md:text-4xl font-black text-amber-300 mt-1">TQQQ, SOXL, SPXL</p>
         <p class="text-xs font-bold text-yellow-300 mt-1">0.20 Delta CSP Strategy</p>
       </div>
-      <div class="bg-[#0e172a] border-2 border-yellow-500 rounded-2xl p-5">
+            <div class="bg-[#0e172a] border-2 border-indigo-500 rounded-2xl p-4">
+        <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-indigo-300">Vertical Spreads</p>
+        <p id="statSpreadCount" class="text-2xl md:text-3xl font-black text-indigo-300 mt-1">--</p>
+        <p id="statSpreadSub" class="text-xs font-bold text-slate-300 mt-1">Credit &amp; Debit by Regime</p>
+      </div>
+<div class="bg-[#0e172a] border-2 border-yellow-500 rounded-2xl p-5">
         <p class="text-xs md:text-sm font-bold uppercase tracking-wider text-yellow-300">Equity (&ge;100sh) &amp; Options</p>
         <p id="statPositionsCount" class="text-3xl md:text-4xl font-black text-yellow-300 mt-1">--</p>
         <p id="statPositionsSub" class="text-xs font-bold text-slate-300 mt-1">Loading from positions.csv...</p>
@@ -204,6 +209,9 @@
       </button>
       <button onclick="showTab('positions')" id="tabBtn-positions" class="px-5 py-3 rounded-xl bg-[#0e172a] text-yellow-300 hover:text-white border-2 border-slate-600 transition">
         5. Equity Holdings, Net Delta &amp; Options (positions.csv)
+      </button>
+      <button onclick="showTab('spreads')" id="tabBtn-spreads" class="px-5 py-3 rounded-xl bg-[#0e172a] text-indigo-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap">
+        6. Vertical Spreads (Call / Put by Market Regime)
       </button>
     </div>
 
@@ -596,6 +604,83 @@
       </div>
     </div>
 
+    <!-- TAB 6: VERTICAL SPREADS (CALL OR PUT BASED ON MARKET CONDITION) -->
+    <div id="panel-spreads" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
+        <div>
+          <h2 class="text-xl md:text-2xl font-black text-white flex items-center space-x-2">
+            <span class="h-3.5 w-3.5 rounded-full bg-indigo-400"></span>
+            <span>Dynamic Vertical Spreads: Call or Put by Market Regime</span>
+          </h2>
+          <p class="text-sm font-bold text-slate-300 mt-1">
+            Quantitative selection engine: Automatically assigns <span class="text-emerald-300 font-black">Bull Put Credit Spreads</span> (oversold dips + high IV), <span class="text-rose-300 font-black">Bear Call Credit Spreads</span> (overbought rallies + high IV), or <span class="text-cyan-300 font-black">Debit Spreads</span> (low IV directional momentum).
+          </p>
+        </div>
+        <div class="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-indigo-400">
+          <label for="spreadFilterSelect" class="text-xs font-black text-yellow-300 uppercase">Filter Strategy:</label>
+          <select id="spreadFilterSelect" onchange="renderSpreadSection()" class="bg-slate-950 border border-slate-600 rounded-lg px-2 py-1 text-xs text-indigo-300 font-black focus:outline-none">
+            <option value="ALL">All Strategies (13 Tickers)</option>
+            <option value="CREDIT">Credit Spreads Only (High IV / Income)</option>
+            <option value="DEBIT">Debit Spreads Only (Low IV / Directional)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Regime Explainer Cards (High IV vs Low IV) -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-[#090d16] border-2 border-emerald-500/80 rounded-xl p-4 space-y-2">
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-black text-emerald-300">🟢 High IV Regime (IV Rank &ge; 35%): Sell Credit Spreads</h3>
+            <span class="px-2 py-0.5 rounded bg-emerald-500 text-black font-black text-xs">POSITIVE THETA / SHORT VEGA</span>
+          </div>
+          <p class="text-xs text-slate-300">
+            Options are historically expensive. We sell the expensive near-the-money leg and buy a cheaper out-of-the-money wing for strict defined risk. Profit from time decay (theta) and volatility contraction (vega crush).
+          </p>
+          <div class="text-xs font-mono space-y-1 text-slate-200">
+            <div>• <strong>RSI &le; 50 (Dip):</strong> <span class="text-emerald-300 font-bold">Bull Put Credit Spread</span> (STO Put ~0.25&Delta; / BTO Put ~0.15&Delta;). Sell downside fear.</div>
+            <div>• <strong>RSI &gt; 50 (Rally):</strong> <span class="text-rose-300 font-bold">Bear Call Credit Spread</span> (STO Call ~0.25&Delta; / BTO Call ~0.15&Delta;). Fade overbought resistance.</div>
+          </div>
+        </div>
+
+        <div class="bg-[#090d16] border-2 border-cyan-500/80 rounded-xl p-4 space-y-2">
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-black text-cyan-300">🔵 Low IV Regime (IV Rank &lt; 35%): Buy Debit Spreads</h3>
+            <span class="px-2 py-0.5 rounded bg-cyan-500 text-black font-black text-xs">DEFINED RISK / CHEAP VOLATILITY</span>
+          </div>
+          <p class="text-xs text-slate-300">
+            Options are historically cheap. We buy directional exposure at a steep discount by selling a further OTM strike to finance the position, capping risk strictly at net premium paid.
+          </p>
+          <div class="text-xs font-mono space-y-1 text-slate-200">
+            <div>• <strong>RSI &le; 50:</strong> <span class="text-cyan-300 font-bold">Bull Call Debit Spread</span> (BTO Call ATM/ITM + STO Call OTM). Low-cost upside surge.</div>
+            <div>• <strong>RSI &gt; 50:</strong> <span class="text-amber-300 font-bold">Bear Put Debit Spread</span> (BTO Put ATM/ITM + STO Put OTM). Cheap downside hedging.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dynamic Spreads Table -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm md:text-base border-collapse font-bold">
+          <thead>
+            <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase text-xs md:text-sm">
+              <th class="py-3 px-3">Symbol &amp; Spot</th>
+              <th class="py-3 px-3">Market Regime</th>
+              <th class="py-3 px-3">Strategy &amp; Bias</th>
+              <th class="py-3 px-3">Expiration</th>
+              <th class="py-3 px-3">Spread Structure (Strikes &amp; Width)</th>
+              <th class="py-3 px-3">Net Credit / Debit</th>
+              <th class="py-3 px-3">Max Profit / Risk</th>
+              <th class="py-3 px-3">ROC% &amp; POP</th>
+              <th class="py-3 px-3">Breakeven / Buffer</th>
+              <th class="py-3 px-3">Execution Directive &amp; Exit</th>
+            </tr>
+          </thead>
+          <tbody id="spreadTableBody" class="divide-y-2 divide-slate-700 font-mono">
+            <tr><td colspan="10" class="py-4 text-center text-slate-400">Loading dynamic vertical spread recommendations...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -684,7 +769,7 @@
     }
 
     function showTab(tabId) {
-      const tabs = ['wheel', 'leap', 'leveraged', 'telemetry', 'positions'];
+      const tabs = ['wheel', 'leap', 'leveraged', 'telemetry', 'positions', 'spreads'];
       tabs.forEach(t => {
         const panel = document.getElementById(`panel-${t}`);
         if (panel) panel.classList.add('hidden');
@@ -702,6 +787,8 @@
         activeBtn.classList.remove('bg-[#0e172a]', 'text-slate-200', 'border-slate-600');
         if (tabId === 'leveraged') {
           activeBtn.classList.add('bg-amber-400', 'text-black', 'border-white');
+        } else if (tabId === 'spreads') {
+          activeBtn.classList.add('bg-indigo-500', 'text-white', 'border-white');
         } else {
           activeBtn.classList.add('bg-emerald-500', 'text-black', 'border-white');
         }
@@ -889,6 +976,104 @@
         alert('Run `python convert_fidelity_positions.py` or start the Option Sentinel server.');
         if (btn) btn.innerText = '📂 Sync Latest Fidelity CSV';
       }
+    }
+
+    let latestSpreadRecommendations = null;
+
+    function renderSpreadSection() {
+      const tbody = document.getElementById('spreadTableBody');
+      const filterSelect = document.getElementById('spreadFilterSelect');
+      if (!tbody) return;
+
+      const raw = latestSpreadRecommendations || [];
+      if (raw.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="py-6 text-center text-slate-400 font-bold">No dynamic vertical spread recommendations available yet.</td></tr>`;
+        return;
+      }
+
+      const filterVal = filterSelect ? filterSelect.value : 'ALL';
+      let filtered = raw;
+      if (filterVal === 'CREDIT') {
+        filtered = raw.filter(s => s.is_credit);
+      } else if (filterVal === 'DEBIT') {
+        filtered = raw.filter(s => !s.is_credit);
+      }
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="py-6 text-center text-slate-400 font-bold">No ${filterVal} spreads currently meeting market criteria.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(s => {
+        const isCredit = s.is_credit;
+        const rowCls = s.is_qualified
+          ? (isCredit ? 'bg-emerald-950/40 border-2 border-emerald-500' : 'bg-cyan-950/40 border-2 border-cyan-500')
+          : 'hover:bg-slate-800/50';
+
+        const stratBadge = isCredit
+          ? (s.spread_type.includes('Bull Put')
+              ? '<span class="px-2.5 py-1 rounded-lg bg-emerald-500 text-black font-black text-xs">BULL PUT CREDIT</span>'
+              : '<span class="px-2.5 py-1 rounded-lg bg-rose-500 text-white font-black text-xs">BEAR CALL CREDIT</span>')
+          : (s.spread_type.includes('Bull Call')
+              ? '<span class="px-2.5 py-1 rounded-lg bg-cyan-400 text-black font-black text-xs">BULL CALL DEBIT</span>'
+              : '<span class="px-2.5 py-1 rounded-lg bg-amber-400 text-black font-black text-xs">BEAR PUT DEBIT</span>');
+
+        const badge = s.is_qualified
+          ? (isCredit
+              ? '<span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-black border border-white">QUALIFIED CREDIT</span>'
+              : '<span class="px-3 py-1 rounded-full text-xs font-black bg-cyan-400 text-black border border-white">QUALIFIED DEBIT</span>')
+          : `<span class="px-2.5 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">WATCHLIST</span>`;
+
+        const expFormatted = formatExpDate(s.expiration || s.short_contract, s.target_dte);
+
+        const netPriceColor = isCredit ? 'text-emerald-300' : 'text-cyan-300';
+        const bufferLabel = s.spread_type.includes('Call') ? 'Upside OTM' : 'Downside Cushion';
+
+        return `
+          <tr class="${rowCls}">
+            <td class="py-4 px-3">
+              <div class="text-xl font-black text-white">${s.symbol}</div>
+              <div class="text-yellow-300 font-mono text-base font-bold">$${s.spot.toFixed(2)}</div>
+            </td>
+            <td class="py-4 px-3 text-xs font-mono">
+              <div class="text-slate-200">RSI: <span class="font-bold ${s.rsi_14 < 35 ? 'text-cyan-300' : (s.rsi_14 > 60 ? 'text-rose-300' : 'text-yellow-300')}">${s.rsi_14.toFixed(1)}</span></div>
+              <div class="text-slate-200">IV Rank: <span class="font-bold ${s.iv_rank >= 35 ? 'text-emerald-300' : 'text-purple-300'}">${s.iv_rank.toFixed(1)}%</span></div>
+              <div class="text-[11px] text-slate-400">${s.regime_note}</div>
+            </td>
+            <td class="py-4 px-3">
+              <div class="mb-1">${stratBadge}</div>
+              <div class="text-xs text-yellow-300 font-sans font-bold">${s.bias}</div>
+            </td>
+            <td class="py-4 px-3 text-xs font-mono text-cyan-300 font-bold whitespace-nowrap">
+              📅 ${expFormatted}
+            </td>
+            <td class="py-4 px-3 text-xs font-mono">
+              <div class="text-white font-black text-sm">${s.trade_action}</div>
+              <div class="text-slate-300 mt-0.5">$${s.width.toFixed(2)} strike width</div>
+              <div class="text-[11px] text-slate-400 truncate max-w-xs">${s.short_contract} / ${s.long_contract}</div>
+            </td>
+            <td class="py-4 px-3 font-mono font-black text-base ${netPriceColor}">
+              ${s.price_desc}
+            </td>
+            <td class="py-4 px-3 font-mono text-xs">
+              <div class="text-emerald-300 font-bold">Max Profit: +$${s.max_profit.toFixed(0)}</div>
+              <div class="text-rose-400 font-bold">Max Risk: -$${s.max_risk.toFixed(0)}</div>
+            </td>
+            <td class="py-4 px-3 font-mono">
+              <div class="text-yellow-300 font-black text-base">${s.roc.toFixed(1)}% <span class="text-xs text-slate-400">(${s.annualized_roc.toFixed(0)}% ann)</span></div>
+              <div class="text-emerald-400 text-xs font-bold">POP: ${s.pop.toFixed(1)}%</div>
+            </td>
+            <td class="py-4 px-3 font-mono text-xs">
+              <div class="text-white font-bold">B/E: $${s.breakeven.toFixed(2)}</div>
+              <div class="text-emerald-300 text-[11px]">${s.buffer_pct.toFixed(1)}% ${bufferLabel}</div>
+            </td>
+            <td class="py-4 px-3 text-right">
+              <div class="mb-1">${badge}</div>
+              <div class="text-xs text-slate-200 font-sans font-bold max-w-xs text-right">${s.directive}</div>
+            </td>
+          </tr>
+        `;
+      }).join('');
     }
 
     function renderEquityExposureSection() {
@@ -1202,6 +1387,14 @@
         });
       }
       if (data.ticker_count) document.getElementById('statTickersCount').innerText = `${data.ticker_count} Assets`;
+      if (data.spread_opportunities !== undefined) {
+        const spreadCountEl = document.getElementById('statSpreadCount');
+        if (spreadCountEl) spreadCountEl.innerText = `${data.spread_opportunities} Qualified`;
+      }
+      if (data.spread_recommendations) {
+        latestSpreadRecommendations = data.spread_recommendations;
+        renderSpreadSection();
+      }
       if (data.wheel_opportunities !== undefined) document.getElementById('statWheelCount').innerText = `${data.wheel_opportunities} Triggered`;
       if (data.leap_opportunities !== undefined) document.getElementById('statLeapCount').innerText = `${data.leap_opportunities} Qualified`;
       if (data.manual_positions !== undefined && Array.isArray(data.manual_positions)) {

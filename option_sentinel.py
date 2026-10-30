@@ -680,6 +680,188 @@ class StrategyScanner:
 # SECTION 4: REAL-TIME GAMMA DANGER SENTINEL (MONITORS positions.csv)
 # ==============================================================================
 
+    def generate_spread_matrix(self, all_tickers: bool = True) -> List[Dict[str, Any]]:
+        """
+        Dynamically generates optimal Defined-Risk Vertical Spreads (Call or Put) based on real-time market regimes:
+        - High IV (IV Rank >= 35% or 6M IVP >= 40%): Credit Spreads (Positive Theta, Short Vega)
+            * RSI <= 50 -> Bull Put Credit Spread (Oversold/Dip Buy below support)
+            * RSI > 50  -> Bear Call Credit Spread (Overbought/Fade Rally below resistance)
+        - Low IV (IV Rank < 35%): Debit Spreads (Long Vega, Defined Cheap Cost)
+            * RSI <= 50 -> Bull Call Debit Spread (Cheap Bullish Momentum run)
+            * RSI > 50  -> Bear Put Debit Spread (Cheap Bearish Downside Hedge)
+        """
+        spreads: List[Dict[str, Any]] = []
+
+        for sym, meta in WATCHLIST_MATRIX.items():
+            snap = self.snapshots.get(sym)
+            if not snap:
+                continue
+            spot = snap.spot
+            iv = max(0.10, snap.iv_current)
+            ivr = snap.iv_rank
+            ivp = snap.iv_percentile_6m
+            rsi = snap.rsi_14
+
+            is_high_iv = (ivr >= 35.0 or ivp >= 40.0)
+
+            if is_high_iv:
+                is_credit = True
+                if rsi <= 50.0:
+                    spread_type = "Bull Put Credit Spread"
+                    bias = "Bullish / Dip Buy"
+                    is_call = False
+                else:
+                    spread_type = "Bear Call Credit Spread"
+                    bias = "Bearish / Fade Rally"
+                    is_call = True
+            else:
+                is_credit = False
+                if rsi <= 50.0:
+                    spread_type = "Bull Call Debit Spread"
+                    bias = "Bullish Momentum"
+                    is_call = True
+                else:
+                    spread_type = "Bear Put Debit Spread"
+                    bias = "Bearish Hedge"
+                    is_call = False
+
+            # Width determination
+            if spot >= 400:
+                width = 5.0
+            elif spot >= 150:
+                width = 5.0 if meta.strike_step >= 5 else 2.5
+            elif spot >= 50:
+                width = 2.0 if meta.strike_step <= 1 else meta.strike_step
+            else:
+                width = 1.0
+
+            chain = self.market_client.get_live_option_chain(sym, 28, 55)
+            req_type = "CALL" if is_call else "PUT"
+            candidates = [c for c in chain if c.option_type == req_type]
+
+            target_dte = 35
+            t = target_dte / 365.0
+            move_1sd = spot * iv * math.sqrt(t)
+
+            if spread_type == "Bull Put Credit Spread":
+                raw_short_k = spot - move_1sd * 0.8
+                short_k = round(raw_short_k / meta.strike_step) * meta.strike_step
+                long_k = short_k - width
+            elif spread_type == "Bear Call Credit Spread":
+                raw_short_k = spot + move_1sd * 0.8
+                short_k = round(raw_short_k / meta.strike_step) * meta.strike_step
+                long_k = short_k + width
+            elif spread_type == "Bull Call Debit Spread":
+                raw_long_k = spot - move_1sd * 0.2
+                long_k = round(raw_long_k / meta.strike_step) * meta.strike_step
+                short_k = long_k + width
+            else:  # Bear Put Debit Spread
+                raw_long_k = spot + move_1sd * 0.2
+                long_k = round(raw_long_k / meta.strike_step) * meta.strike_step
+                short_k = long_k - width
+
+            # Resolve legs against live chain
+            short_c = min(candidates, key=lambda c: abs(c.strike - short_k)) if candidates else None
+            long_c = min(candidates, key=lambda c: abs(c.strike - long_k)) if candidates else None
+
+            short_strike = short_c.strike if short_c else short_k
+            long_strike = long_c.strike if long_c else long_k
+            actual_width = abs(short_strike - long_strike)
+            if actual_width <= 0:
+                actual_width = width
+                if is_call:
+                    long_strike = short_strike + width if is_credit else short_strike - width
+                else:
+                    long_strike = short_strike - width if is_credit else short_strike + width
+
+            dte_val = short_c.dte if short_c else target_dte
+            exp_date = short_c.expiration if short_c else ""
+            if not exp_date and short_c and short_c.contract_symbol:
+                exp_date = parse_occ_expiration(short_c.contract_symbol) or ""
+            if not exp_date:
+                exp_date = (datetime.date.today() + datetime.timedelta(days=dte_val)).isoformat()
+
+            short_mid = short_c.mid if (short_c and short_c.mid > 0) else round(self.math.black_scholes_price(spot, short_strike, dte_val, iv, 0.045, is_call=is_call), 2)
+            long_mid = long_c.mid if (long_c and long_c.mid > 0) else round(self.math.black_scholes_price(spot, long_strike, dte_val, iv, 0.045, is_call=is_call), 2)
+
+            short_delta = short_c.delta_approx if short_c else (-0.25 if not is_call else 0.25)
+            long_delta = long_c.delta_approx if long_c else (-0.15 if not is_call else 0.15)
+
+            short_sym = short_c.contract_symbol if short_c else f"{sym}-{req_type}-${short_strike:g}"
+            long_sym = long_c.contract_symbol if long_c else f"{sym}-{req_type}-${long_strike:g}"
+
+            if is_credit:
+                net_price = max(0.05, round(short_mid - long_mid, 2))
+                if net_price >= actual_width:
+                    net_price = round(actual_width * 0.35, 2)
+                max_profit = round(net_price * 100.0, 2)
+                max_risk = max(1.0, round((actual_width - net_price) * 100.0, 2))
+                pop = round(max(50.0, min(95.0, (1.0 - abs(short_delta)) * 100.0)), 1)
+                breakeven = round(short_strike - net_price, 2) if not is_call else round(short_strike + net_price, 2)
+                buffer_pct = round(abs(spot - short_strike) / spot * 100.0, 1)
+                exit_target = round(net_price * 0.5, 2)
+                trade_action = f"STO 1x ${short_strike:g} {req_type} / BTO 1x ${long_strike:g} {req_type}"
+                price_desc = f"+${net_price:.2f} credit"
+            else:
+                net_price = max(0.05, round(long_mid - short_mid, 2))
+                if net_price >= actual_width:
+                    net_price = round(actual_width * 0.55, 2)
+                max_profit = round((actual_width - net_price) * 100.0, 2)
+                max_risk = max(1.0, round(net_price * 100.0, 2))
+                pop = round(max(40.0, min(80.0, abs(long_delta) * 100.0)), 1)
+                breakeven = round(long_strike + net_price, 2) if is_call else round(long_strike - net_price, 2)
+                buffer_pct = round(abs(spot - long_strike) / spot * 100.0, 1)
+                exit_target = round(net_price + (actual_width - net_price) * 0.5, 2)
+                trade_action = f"BTO 1x ${long_strike:g} {req_type} / STO 1x ${short_strike:g} {req_type}"
+                price_desc = f"-${net_price:.2f} debit"
+
+            roc = round((max_profit / max_risk) * 100.0, 1) if max_risk > 0 else 0.0
+            annualized_roc = round(roc * (365.0 / dte_val), 1) if dte_val > 0 else 0.0
+
+            is_qualified = (is_credit and ivr >= 35.0) or (not is_credit and ivr < 25.0 and rsi < 40.0)
+
+            spreads.append({
+                "symbol": sym,
+                "spot": spot,
+                "iv": round(iv * 100.0, 1),
+                "iv_rank": round(ivr, 1),
+                "iv_percentile_6m": round(ivp, 1),
+                "rsi_14": round(rsi, 1),
+                "spread_type": spread_type,
+                "is_credit": is_credit,
+                "bias": bias,
+                "width": actual_width,
+                "target_dte": dte_val,
+                "expiration": exp_date,
+                "short_strike": short_strike,
+                "long_strike": long_strike,
+                "short_contract": short_sym,
+                "long_contract": long_sym,
+                "short_mid": short_mid,
+                "long_mid": long_mid,
+                "short_delta": short_delta,
+                "long_delta": long_delta,
+                "net_price": net_price,
+                "price_desc": price_desc,
+                "max_profit": max_profit,
+                "max_risk": max_risk,
+                "roc": roc,
+                "annualized_roc": annualized_roc,
+                "pop": pop,
+                "breakeven": breakeven,
+                "buffer_pct": buffer_pct,
+                "exit_target": exit_target,
+                "trade_action": trade_action,
+                "is_qualified": is_qualified,
+                "status": ("QUALIFIED SPREAD" if is_qualified else "MONITOR"),
+                "directive": f"{trade_action} exp {exp_date} ({dte_val} DTE) @ {price_desc} | Exit @ ${exit_target:.2f} (50% target) or 14 DTE",
+                "regime_note": f"IVR {ivr:.0f}% ({'High IV' if is_high_iv else 'Low IV'}) • RSI {rsi:.0f} ({'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral')})"
+            })
+
+        spreads.sort(key=lambda s: (not s["is_qualified"], -s["iv_rank"] if s["is_credit"] else s["iv_rank"]))
+        return spreads
+
+
 class GammaDangerSentinel:
     """Audits manual entries in positions.csv against live market feeds."""
 
@@ -1469,6 +1651,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             })
 
         leap_puts = self.scanner.generate_leap_put_matrix(all_tickers=True)
+        spreads = self.scanner.generate_spread_matrix(all_tickers=True)
         manual_positions = self.sentinel.evaluate_all_manual_positions()
         equity_exposure = self.sentinel.evaluate_equity_and_exposure(manual_positions)
         summary = {
@@ -1481,6 +1664,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "wheel_opportunities": sum(1 for r in wheel if r.get("is_qualified")),
             "leap_opportunities": sum(1 for r in leap if r.get("is_qualified")),
             "leap_put_opportunities": sum(1 for p in leap_puts if p.get("is_qualified")),
+            "spread_opportunities": sum(1 for s in spreads if s.get("is_qualified")),
             "gamma_danger_count": len(alerts),
             "manual_positions_count": len(manual_positions),
             "equity_tickers_count": len(equity_exposure),
@@ -1488,6 +1672,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "wheel_recommendations": wheel,
             "leap_recommendations": leap,
             "leap_put_recommendations": leap_puts,
+            "spread_recommendations": spreads,
             "leveraged_etfs_guidance": leveraged_etfs,
             "gamma_alerts": alerts,
             "manual_positions": manual_positions,
