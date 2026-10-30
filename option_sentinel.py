@@ -142,22 +142,23 @@ class TickerMetadata:
     is_leveraged: bool
     is_tax_advantaged: bool
     strike_step: float
+    beta: float = 1.0
 
 
 WATCHLIST_MATRIX: Dict[str, TickerMetadata] = {
-    "SPY": TickerMetadata("SPY", "SPDR S&P 500 ETF Trust", AssetCategory.CORE_EQUITY, False, False, 1.0),
-    "QQQ": TickerMetadata("QQQ", "Invesco QQQ Trust (Nasdaq-100)", AssetCategory.CORE_EQUITY, False, False, 1.0),
-    "XSP": TickerMetadata("XSP", "Mini-S&P 500 Index Options", AssetCategory.CORE_EQUITY, False, True, 1.0),
-    "QQQM": TickerMetadata("QQQM", "Invesco NASDAQ 100 ETF", AssetCategory.CORE_EQUITY, False, False, 1.0),
-    "SPYM": TickerMetadata("SPYM", "SPDR Portfolio S&P 500 ETF", AssetCategory.CORE_EQUITY, False, False, 0.5),
-    "TQQQ": TickerMetadata("TQQQ", "ProShares UltraPro QQQ (3x)", AssetCategory.LEVERAGED_EQUITY, True, False, 1.0),
-    "SOXL": TickerMetadata("SOXL", "Direxion Daily Semiconductor Bull 3X", AssetCategory.LEVERAGED_EQUITY, True, False, 0.5),
-    "SPXL": TickerMetadata("SPXL", "Direxion Daily S&P 500 Bull 3X", AssetCategory.LEVERAGED_EQUITY, True, False, 1.0),
-    "GLD": TickerMetadata("GLD", "SPDR Gold Trust", AssetCategory.COMMODITY, False, False, 1.0),
-    "SLV": TickerMetadata("SLV", "iShares Silver Trust", AssetCategory.COMMODITY, False, False, 0.5),
-    "IAU": TickerMetadata("IAU", "iShares Gold Trust", AssetCategory.COMMODITY, False, False, 0.5),
-    "IBIT": TickerMetadata("IBIT", "iShares Bitcoin Trust ETF", AssetCategory.CRYPTO_BONDS, False, False, 0.5),
-    "TLT": TickerMetadata("TLT", "iShares 20+ Year Treasury Bond", AssetCategory.CRYPTO_BONDS, False, False, 0.5),
+    "SPY": TickerMetadata("SPY", "SPDR S&P 500 ETF Trust", AssetCategory.CORE_EQUITY, False, False, 1.0, 1.00),
+    "QQQ": TickerMetadata("QQQ", "Invesco QQQ Trust (Nasdaq-100)", AssetCategory.CORE_EQUITY, False, False, 1.0, 1.18),
+    "XSP": TickerMetadata("XSP", "Mini-S&P 500 Index Options", AssetCategory.CORE_EQUITY, False, True, 1.0, 1.00),
+    "QQQM": TickerMetadata("QQQM", "Invesco NASDAQ 100 ETF", AssetCategory.CORE_EQUITY, False, False, 1.0, 1.18),
+    "SPYM": TickerMetadata("SPYM", "SPDR Portfolio S&P 500 ETF", AssetCategory.CORE_EQUITY, False, False, 0.5, 1.00),
+    "TQQQ": TickerMetadata("TQQQ", "ProShares UltraPro QQQ (3x)", AssetCategory.LEVERAGED_EQUITY, True, False, 1.0, 3.50),
+    "SOXL": TickerMetadata("SOXL", "Direxion Daily Semiconductor Bull 3X", AssetCategory.LEVERAGED_EQUITY, True, False, 0.5, 3.80),
+    "SPXL": TickerMetadata("SPXL", "Direxion Daily S&P 500 Bull 3X", AssetCategory.LEVERAGED_EQUITY, True, False, 1.0, 3.00),
+    "GLD": TickerMetadata("GLD", "SPDR Gold Trust", AssetCategory.COMMODITY, False, False, 1.0, 0.08),
+    "SLV": TickerMetadata("SLV", "iShares Silver Trust", AssetCategory.COMMODITY, False, False, 0.5, 0.35),
+    "IAU": TickerMetadata("IAU", "iShares Gold Trust", AssetCategory.COMMODITY, False, False, 0.5, 0.08),
+    "IBIT": TickerMetadata("IBIT", "iShares Bitcoin Trust ETF", AssetCategory.CRYPTO_BONDS, False, False, 0.5, 1.75),
+    "TLT": TickerMetadata("TLT", "iShares 20+ Year Treasury Bond", AssetCategory.CRYPTO_BONDS, False, False, 0.5, -0.25),
 }
 
 
@@ -180,6 +181,8 @@ class TickerScanResult:
     wheel_qualified: bool
     leap_qualified: bool
     disqualification_reason: Optional[str] = None
+    earnings_date: Optional[str] = None
+    days_to_earnings: Optional[int] = None
 
 
 @dataclass
@@ -211,6 +214,9 @@ class WheelStrikeRecommendation:
     expected_1sd_move: float = 0.0
     is_qualified: bool = False
     status: str = "WATCHLIST"
+    earnings_date: Optional[str] = None
+    days_to_earnings: Optional[int] = None
+    earnings_warning: Optional[str] = None
 
 
 @dataclass
@@ -311,6 +317,8 @@ class StrategyScanner:
                     wheel_qualified=wheel_qualified,
                     leap_qualified=leap_qualified,
                     disqualification_reason=leap_disqualifier,
+                    earnings_date=snap.earnings_date,
+                    days_to_earnings=snap.days_to_earnings,
                 )
             )
         return results
@@ -374,6 +382,19 @@ class StrategyScanner:
             downside_buffer = round(((spot - snapped_k) / spot) * 100.0, 2) if spot > 0 else 0.0
             annualized_roc = round(((mid / snapped_k) * (365.0 / target_dte)) * 100.0, 2) if snapped_k > 0 else 0.0
 
+            earn_date = snap.earnings_date
+            days_earn = snap.days_to_earnings
+            earn_warning = None
+            if days_earn is not None and 0 <= days_earn <= target_dte:
+                earn_warning = f"⚠️ EARNINGS in {days_earn}d ({earn_date})"
+                if days_earn <= 7:
+                    is_qualified = False
+                    status_label = f"EARNINGS BLACKOUT ({days_earn}d)"
+                else:
+                    status_label = "QUALIFIED TRIGGER" if is_qualified else f"WATCH (IVR {snap.iv_rank:.0f}% | IVP {snap.iv_percentile_6m:.0f}%)"
+            else:
+                status_label = "QUALIFIED TRIGGER" if is_qualified else f"WATCH (IVR {snap.iv_rank:.0f}% | IVP {snap.iv_percentile_6m:.0f}%)"
+
             rec = WheelStrikeRecommendation(
                 symbol=sym,
                 spot=spot,
@@ -401,7 +422,10 @@ class StrategyScanner:
                 iv_percentile_6m=snap.iv_percentile_6m,
                 expected_1sd_move=round(move_1sd, 2),
                 is_qualified=is_qualified,
-                status="QUALIFIED TRIGGER" if is_qualified else f"WATCH (IVR {snap.iv_rank:.0f}% | IVP {snap.iv_percentile_6m:.0f}%)",
+                status=status_label,
+                earnings_date=earn_date,
+                days_to_earnings=days_earn,
+                earnings_warning=earn_warning,
             )
             recommendations.append(rec)
 
@@ -818,9 +842,22 @@ class StrategyScanner:
             roc = round((max_profit / max_risk) * 100.0, 1) if max_risk > 0 else 0.0
             annualized_roc = round(roc * (365.0 / dte_val), 1) if dte_val > 0 else 0.0
 
+            earn_date = snap.earnings_date
+            days_earn = snap.days_to_earnings
+            earn_warning = None
             is_qualified = (is_credit and ivr >= 35.0) or (not is_credit and ivr < 25.0 and rsi < 40.0)
+            status_text = "QUALIFIED SPREAD" if is_qualified else "MONITOR"
+
+            if days_earn is not None and 0 <= days_earn <= dte_val:
+                earn_warning = f"⚠️ EARNINGS in {days_earn}d ({earn_date})"
+                if days_earn <= 7:
+                    is_qualified = False
+                    status_text = f"EARNINGS BLACKOUT ({days_earn}d)"
 
             spreads.append({
+                "earnings_date": earn_date,
+                "days_to_earnings": days_earn,
+                "earnings_warning": earn_warning,
                 "symbol": sym,
                 "spot": spot,
                 "iv": round(iv * 100.0, 1),
@@ -853,7 +890,7 @@ class StrategyScanner:
                 "exit_target": exit_target,
                 "trade_action": trade_action,
                 "is_qualified": is_qualified,
-                "status": ("QUALIFIED SPREAD" if is_qualified else "MONITOR"),
+                "status": status_text,
                 "directive": f"{trade_action} exp {exp_date} ({dte_val} DTE) @ {price_desc} | Exit @ ${exit_target:.2f} (50% target) or 14 DTE",
                 "regime_note": f"IVR {ivr:.0f}% ({'High IV' if is_high_iv else 'Low IV'}) • RSI {rsi:.0f} ({'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral')})"
             })
@@ -909,7 +946,7 @@ class GammaDangerSentinel:
             except Exception:
                 continue
 
-            if contracts >= 0 or dte >= 14:
+            if contracts >= 0 or dte > 14:
                 continue
 
             matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte)
@@ -917,7 +954,7 @@ class GammaDangerSentinel:
             gamma_val = matched.gamma_approx if matched else 0.02
             delta_val = matched.delta_approx if matched else -0.25
 
-            if contracts < 0 and dte < 14:
+            if contracts < 0 and dte <= 14:
                 pnl = (entry_prem - curr_mid) * abs(contracts) * 100.0
                 pnl_pct = ((entry_prem - curr_mid) / entry_prem) * 100.0 if entry_prem > 0 else 0.0
 
@@ -1018,6 +1055,9 @@ class GammaDangerSentinel:
                     "gamma_danger": False,
                     "profit_target_hit": False,
                     "status": status,
+                    "earnings_date": snap.earnings_date if snap else None,
+                    "days_to_earnings": snap.days_to_earnings if snap else None,
+                    "earnings_warning": (f"⚠️ EARNINGS in {snap.days_to_earnings}d ({snap.earnings_date})" if (snap and snap.days_to_earnings is not None and 0 <= snap.days_to_earnings <= 30) else None),
                 })
                 continue
 
@@ -1038,7 +1078,7 @@ class GammaDangerSentinel:
                 pnl = (curr_mid - entry_prem) * abs(contracts) * 100.0
                 pnl_pct = ((curr_mid - entry_prem) / entry_prem) * 100.0 if entry_prem > 0 else 0.0
 
-            gamma_danger = (dte < 14 and contracts < 0)
+            gamma_danger = (dte <= 14 and contracts < 0)
             profit_hit = (pnl_pct >= 50.0 and contracts < 0)
             if gamma_danger and profit_hit:
                 status = "EXIT NOW: 50% PROFIT + <14 DTE GAMMA"
@@ -1050,6 +1090,37 @@ class GammaDangerSentinel:
                 status = "HOLD LEAP: LONG CORE POSITION" if dte >= 60 else "REVIEW LEAP ROLL (<60 DTE)"
             else:
                 status = "HOLD: SAFE THETA HARVEST"
+
+            # Check earnings blackout for position
+            snap = self.scanner.snapshots.get(sym)
+            earn_date = snap.earnings_date if snap else None
+            days_earn = snap.days_to_earnings if snap else None
+            earn_warning = None
+            if days_earn is not None and 0 <= days_earn <= max(dte, 1):
+                earn_warning = f"⚠️ EARNINGS in {days_earn}d ({earn_date})"
+
+            # Calculate concrete roll recommendation for <14 DTE short options
+            roll_target_strike = None
+            roll_target_exp = None
+            roll_target_dte = None
+            roll_net_credit = None
+            roll_plan = None
+
+            if gamma_danger:
+                try:
+                    roll_chain = self.scanner.market_client.get_live_option_chain(sym, 35, 55)
+                    cands = [c for c in roll_chain if c.option_type == opt_type]
+                    if cands:
+                        best_roll = min(cands, key=lambda c: (abs(c.strike - strike), abs(c.dte - 42)))
+                        roll_target_strike = best_roll.strike
+                        roll_target_exp = best_roll.expiration
+                        roll_target_dte = best_roll.dte
+                        roll_net_credit = round(best_roll.mid - curr_mid, 2)
+                        total_c = round(roll_net_credit * abs(contracts) * 100.0, 2)
+                        cred_str = f"+${roll_net_credit:.2f} credit (+${total_c:,.0f})" if roll_net_credit >= 0 else f"-${abs(roll_net_credit):.2f} debit"
+                        roll_plan = f"BTC {abs(contracts)}x ${strike:g}{opt_type[0]} @ ${curr_mid:.2f} | STO {abs(contracts)}x ${best_roll.strike:g}{opt_type[0]} ({best_roll.expiration}, {best_roll.dte} DTE) @ ${best_roll.mid:.2f} [{cred_str}]"
+                except Exception:
+                    pass
 
             results.append({
                 "index": idx,
@@ -1069,6 +1140,14 @@ class GammaDangerSentinel:
                 "gamma_danger": gamma_danger,
                 "profit_target_hit": profit_hit,
                 "status": status,
+                "earnings_date": earn_date,
+                "days_to_earnings": days_earn,
+                "earnings_warning": earn_warning,
+                "roll_target_strike": roll_target_strike,
+                "roll_target_exp": roll_target_exp,
+                "roll_target_dte": roll_target_dte,
+                "roll_net_credit": roll_net_credit,
+                "roll_plan": roll_plan,
             })
         return results
 
@@ -1331,7 +1410,17 @@ class GammaDangerSentinel:
                     f"@ ${cc_mid:.2f} (BTC @ ${cc_exit_50:.2f} / 50% profit)"
                 )
 
+            # Beta-Weighted Exposure against S&P 500 (SPY)
+            spy_snap = self.scanner.snapshots.get("SPY")
+            spy_spot = spy_snap.spot if spy_snap and spy_snap.spot > 0 else 580.0
+            beta_val = meta.beta if meta else (3.8 if sym == "SOXL" else (3.5 if sym == "TQQQ" else (1.95 if sym == "NVDA" else (2.1 if sym == "TSLA" else 1.0))))
+            beta_dollar_delta = round(net_notional * beta_val, 2)
+            spy_delta_shares = round(beta_dollar_delta / spy_spot, 1) if spy_spot > 0 else 0.0
+
             exposure_rows.append({
+                "beta": beta_val,
+                "beta_dollar_delta": beta_dollar_delta,
+                "spy_delta_shares": spy_delta_shares,
                 "symbol": sym,
                 "accounts": ", ".join(sorted(item["accounts"])),
                 "account_cc_breakdown": account_cc_breakdown,
@@ -1373,6 +1462,38 @@ class GammaDangerSentinel:
             ticker_totals[r["symbol"]] = ticker_totals.get(r["symbol"], 0.0) + abs(r["net_notional_exposure"])
         exposure_rows.sort(key=lambda r: (-ticker_totals[r["symbol"]], r["symbol"], r["accounts"]))
         return exposure_rows
+
+    def get_portfolio_beta_summary(self, exposure_rows: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        rows = exposure_rows if exposure_rows is not None else self.evaluate_equity_and_exposure()
+        spy_snap = self.scanner.snapshots.get("SPY")
+        spy_spot = spy_snap.spot if spy_snap and spy_snap.spot > 0 else 580.0
+
+        total_spy_shares = round(sum(r.get("spy_delta_shares", 0.0) for r in rows), 1)
+        total_beta_exposure = round(total_spy_shares * spy_spot, 2)
+        move_1pct = round(total_beta_exposure * 0.01, 2)
+
+        if total_spy_shares > 250:
+            tilt = "Aggressive Bullish (High Beta Long)"
+            tilt_badge = "badge-danger"
+        elif total_spy_shares > 50:
+            tilt = "Moderate Bullish (Target Growth)"
+            tilt_badge = "badge-success"
+        elif total_spy_shares >= -50:
+            tilt = "Market Neutral (Delta Hedged)"
+            tilt_badge = "badge-info"
+        else:
+            tilt = "Defensive / Net Short"
+            tilt_badge = "badge-warning"
+
+        return {
+            "spy_spot": round(spy_spot, 2),
+            "total_spy_delta_shares": total_spy_shares,
+            "total_beta_exposure": total_beta_exposure,
+            "move_1pct_dollars": move_1pct,
+            "portfolio_tilt": tilt,
+            "tilt_badge": tilt_badge,
+            "total_positions_count": len(rows),
+        }
 
     def add_manual_position(
         self,
@@ -1430,7 +1551,7 @@ class GammaDangerSentinel:
 # ==============================================================================
 
 class AutoSyncManager:
-    """Refreshes live market snapshots in the background every interval_sec."""
+    """Refreshes live market snapshots in the background and auto-watches Fidelity CSV folder."""
     def __init__(self, scanner: StrategyScanner, sentinel: GammaDangerSentinel, interval_sec: int = 120):
         self.scanner = scanner
         self.sentinel = sentinel
@@ -1438,6 +1559,36 @@ class AutoSyncManager:
         self.last_sync = datetime.datetime.now()
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._last_fidelity_csv: str = ""
+        self._last_fidelity_mtime: float = 0.0
+        self._init_fidelity_state()
+
+    def _init_fidelity_state(self):
+        try:
+            from convert_fidelity_positions import find_latest_fidelity_csv
+            fidelity_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Fidelity")
+            csv_path = find_latest_fidelity_csv(fidelity_dir)
+            if csv_path and os.path.exists(csv_path):
+                self._last_fidelity_csv = csv_path
+                self._last_fidelity_mtime = os.path.getmtime(csv_path)
+        except Exception:
+            pass
+
+    def _check_fidelity_update(self):
+        try:
+            from convert_fidelity_positions import find_latest_fidelity_csv, convert_latest_fidelity_to_positions
+            fidelity_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Fidelity")
+            latest_csv = find_latest_fidelity_csv(fidelity_dir)
+            if latest_csv and os.path.exists(latest_csv):
+                mtime = os.path.getmtime(latest_csv)
+                if latest_csv != self._last_fidelity_csv or mtime > self._last_fidelity_mtime:
+                    self._last_fidelity_csv = latest_csv
+                    self._last_fidelity_mtime = mtime
+                    src_csv, converted = convert_latest_fidelity_to_positions()
+                    print(f"\n[AUTO-WATCHER] 📁 New or updated Fidelity CSV detected: {os.path.basename(src_csv)} ({len(converted)} positions auto-synced!)")
+                    self.sentinel.evaluate_all_manual_positions()
+        except Exception as e:
+            sys.stderr.write(f"[AUTO-WATCHER WARNING]: {e}\n")
 
     def start(self):
         if self._running:
@@ -1445,17 +1596,22 @@ class AutoSyncManager:
         self._running = True
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
-        print(f"[*] Auto-Sync Active: Background telemetry updates automatically every {self.interval}s.")
+        print(f"[*] Auto-Sync Active: Background telemetry updates every {self.interval}s + Fidelity CSV auto-watcher active.")
 
     def _worker(self):
+        elapsed = 0
         while self._running:
-            time.sleep(self.interval)
-            try:
-                self.scanner.refresh()
-                self.last_sync = datetime.datetime.now()
-                self.sentinel.audit_manual_positions(emit_stderr=True)
-            except Exception as e:
-                sys.stderr.write(f"[AUTO-SYNC WARNING]: {e}\n")
+            time.sleep(5)
+            elapsed += 5
+            self._check_fidelity_update()
+            if elapsed >= self.interval:
+                elapsed = 0
+                try:
+                    self.scanner.refresh()
+                    self.last_sync = datetime.datetime.now()
+                    self.sentinel.audit_manual_positions(emit_stderr=True)
+                except Exception as e:
+                    sys.stderr.write(f"[AUTO-SYNC WARNING]: {e}\n")
 
 
 class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -1654,7 +1810,9 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
         spreads = self.scanner.generate_spread_matrix(all_tickers=True)
         manual_positions = self.sentinel.evaluate_all_manual_positions()
         equity_exposure = self.sentinel.evaluate_equity_and_exposure(manual_positions)
+        portfolio_beta = self.sentinel.get_portfolio_beta_summary(equity_exposure)
         summary = {
+            "portfolio_beta_summary": portfolio_beta,
             "timestamp": datetime.datetime.now().isoformat(),
             "feed_mode": "100% LIVE EXCHANGE FEED (ZERO SIMULATION)",
             "active_provider": self.scanner.market_client.active_provider,

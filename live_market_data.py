@@ -73,6 +73,8 @@ class LiveTickerSnapshot:
     iv_percentile_6m: float
     timestamp: str
     is_live: bool = True
+    earnings_date: Optional[str] = None
+    days_to_earnings: Optional[int] = None
 
 
 @dataclass
@@ -570,6 +572,7 @@ class LiveMarketClient:
         self._network_backoff_until: float = 0
         self._cache_quotes: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._cache_chains: Dict[str, Tuple[float, List[LiveOptionContract]]] = {}
+        self._cache_earnings: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self.sqlite_cache = SQLiteMarketCache(enabled=self.persist_cache_enabled)
         self.schwab_limiter = TokenBucketRateLimiter(max_calls=90, period_seconds=60.0, min_interval_sec=0.05)
         self.yahoo_limiter = TokenBucketRateLimiter(max_calls=30, period_seconds=60.0, min_interval_sec=0.05)
@@ -777,6 +780,10 @@ class LiveMarketClient:
         hv_30d = self._calculate_annualized_volatility(clean_closes, 30)
         iv_current, iv_rank, iv_percentile = self._calculate_volatility_metrics(clean_closes, hv_30d)
 
+        earnings_info = self.get_upcoming_earnings(symbol)
+        earn_date = earnings_info.get("earnings_date") if earnings_info else None
+        days_earn = earnings_info.get("days_to_earnings") if earnings_info else None
+
         snap = LiveTickerSnapshot(
             symbol=symbol,
             yahoo_symbol=TICKER_SYMBOL_MAP.get(symbol, symbol),
@@ -790,9 +797,84 @@ class LiveMarketClient:
             iv_percentile_6m=iv_percentile,
             timestamp=now_str,
             is_live=True,
+            earnings_date=earn_date,
+            days_to_earnings=days_earn,
         )
         self.sqlite_cache.set(f"SNAP_{symbol.upper()}", asdict(snap))
         return snap
+
+    def get_upcoming_earnings(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves upcoming earnings announcement date for equities.
+        Cached for 24 hours in SQLite and in-memory (AGENTS.md Rule #3).
+        Returns dict with keys: 'earnings_date', 'days_to_earnings', 'is_estimate', 'has_earnings_risk'.
+        """
+        sym = symbol.upper()
+        now = time.time()
+        if sym in self._cache_earnings:
+            cached_time, cached_val = self._cache_earnings[sym]
+            if (now - cached_time) < 86400:
+                return cached_val
+
+        sql_cached = self.sqlite_cache.get(f"EARN_{sym}", max_age_seconds=86400)
+        if sql_cached:
+            self._cache_earnings[sym] = (now, sql_cached)
+            return sql_cached
+
+        yahoo_sym = TICKER_SYMBOL_MAP.get(sym, sym)
+        # Fast bail-out for index / volatility / treasury ETFs that do not report corporate earnings
+        if yahoo_sym.startswith("^") or sym in (
+            "SPY", "QQQ", "QQQM", "SPYM", "XSP", "TQQQ", "SOXL", "SPXL",
+            "GLD", "SLV", "IAU", "IBIT", "TLT"
+        ):
+            res = {"earnings_date": None, "days_to_earnings": None, "is_estimate": False, "has_earnings_risk": False}
+            self._cache_earnings[sym] = (now, res)
+            self.sqlite_cache.set(f"EARN_{sym}", res)
+            return res
+
+        crumb = self._get_crumb()
+        session = self._get_session()
+        url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{yahoo_sym}?modules=calendarEvents"
+        if crumb:
+            url += f"&crumb={crumb}"
+
+        try:
+            self.yahoo_limiter.acquire()
+            r = session.get(url, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                results = data.get("quoteSummary", {}).get("result", [])
+                if results and "calendarEvents" in results[0]:
+                    cal = results[0]["calendarEvents"]
+                    earnings = cal.get("earnings", {})
+                    dates = earnings.get("earningsDate", [])
+                    if dates and isinstance(dates, list) and isinstance(dates[0], dict):
+                        earn_fmt = dates[0].get("fmt")
+                        if earn_fmt:
+                            try:
+                                earn_d = datetime.datetime.strptime(earn_fmt, "%Y-%m-%d").date()
+                                days_away = (earn_d - datetime.date.today()).days
+                                res = {
+                                    "earnings_date": earn_fmt,
+                                    "days_to_earnings": days_away,
+                                    "is_estimate": earnings.get("isEarningsDateEstimate", False),
+                                    "has_earnings_risk": (0 <= days_away <= 45),
+                                }
+                                self._cache_earnings[sym] = (now, res)
+                                self.sqlite_cache.set(f"EARN_{sym}", res)
+                                return res
+                            except Exception:
+                                pass
+            elif r.status_code == 404:
+                res = {"earnings_date": None, "days_to_earnings": None, "is_estimate": False, "has_earnings_risk": False}
+                self._cache_earnings[sym] = (now, res)
+                self.sqlite_cache.set(f"EARN_{sym}", res)
+                return res
+        except Exception as e:
+            sys.stderr.write(f"[EARNINGS-FETCH]: Earnings lookup fallback for {sym}: {e}\n")
+
+        res = {"earnings_date": None, "days_to_earnings": None, "is_estimate": False, "has_earnings_risk": False}
+        return res
 
     def get_all_snapshots_parallel(self, symbols: List[str]) -> Dict[str, LiveTickerSnapshot]:
         """Fetch all snapshots concurrently with rate-limit protection (max_workers=4)."""

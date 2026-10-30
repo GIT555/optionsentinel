@@ -108,6 +108,9 @@
         <button onclick="toggleAutoSync()" id="pauseSyncBtn" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs md:text-sm font-bold rounded-lg border border-slate-600 transition">
           ⏸ Pause
         </button>
+        <button onclick="toggleSoundAlerts()" id="soundAlertsBtn" class="px-3 py-1.5 bg-yellow-950/80 hover:bg-yellow-900 text-yellow-300 text-xs md:text-sm font-bold rounded-lg border border-yellow-500/80 transition" title="Audio chimes for 50% Profit & <14 DTE Gamma triggers">
+          🔔 Audio Alerts: ON
+        </button>
       </div>
     </div>
 
@@ -526,7 +529,7 @@
         </div>
 
         <!-- Dynamic Exposure Summary Cards (Sum of Combined P&L, Net Delta, Equity Value, CC Ready) -->
-        <div id="equitySummaryCards" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+        <div id="equitySummaryCards" class="grid grid-cols-2 md:grid-cols-5 gap-3"></div>
 
         <div id="equityExposureContainer" class="overflow-x-auto">
           <p class="text-sm font-bold text-slate-300">Loading combined Equity + Option exposure from <code class="text-yellow-300 font-mono">positions.csv</code>...</p>
@@ -696,6 +699,117 @@
       const savedAcc = localStorage.getItem('selectedEquityAccount');
       if (savedAcc) selectedEquityAccount = savedAcc;
     } catch (e) {}
+    let latestBetaSummary = null;
+    let soundEnabled = localStorage.getItem('sentinel_sound_enabled') !== 'false';
+    let notifiedTriggersSet = new Set();
+    let audioCtx = null;
+
+    function initAudioContext() {
+      if (!audioCtx) {
+        try {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+          console.warn('AudioContext not supported:', e);
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function toggleSoundAlerts() {
+      initAudioContext();
+      soundEnabled = !soundEnabled;
+      localStorage.setItem('sentinel_sound_enabled', soundEnabled);
+      updateSoundAlertBtn();
+      if (soundEnabled) {
+        playAlertTone('success');
+        if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+          Notification.requestPermission();
+        }
+      }
+    }
+
+    function updateSoundAlertBtn() {
+      const btn = document.getElementById('soundAlertsBtn');
+      if (!btn) return;
+      if (soundEnabled) {
+        btn.innerHTML = '🔔 Audio Alerts: ON';
+        btn.className = 'px-3 py-1.5 bg-yellow-950/80 hover:bg-yellow-900 text-yellow-300 text-xs md:text-sm font-bold rounded-lg border border-yellow-500/80 transition';
+      } else {
+        btn.innerHTML = '🔕 Audio Alerts: OFF';
+        btn.className = 'px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs md:text-sm font-bold rounded-lg border border-slate-600 transition';
+      }
+    }
+
+    function playAlertTone(type = 'success') {
+      if (!soundEnabled) return;
+      initAudioContext();
+      if (!audioCtx) return;
+      try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        if (type === 'danger') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+          osc.frequency.setValueAtTime(330, audioCtx.currentTime + 0.15);
+          gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.45);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.45);
+        } else {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(523.25, audioCtx.currentTime);
+          osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.12);
+          gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.4);
+        }
+      } catch (e) {
+        console.warn('Audio playback notice:', e);
+      }
+    }
+
+    function checkPositionExitAlerts(positions) {
+      if (!positions || !Array.isArray(positions)) return;
+      let profitHitCount = 0;
+      let gammaDangerCount = 0;
+
+      positions.forEach(p => {
+        if (p.option_type === 'EQUITY') return;
+        const key50 = `profit50_${p.position_id}_${p.symbol}_${p.expiration}`;
+        const keyGamma = `gamma14_${p.position_id}_${p.symbol}_${p.expiration}`;
+
+        if (p.profit_target_hit && !notifiedTriggersSet.has(key50)) {
+          notifiedTriggersSet.add(key50);
+          profitHitCount++;
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`🎯 50% Profit Hit: ${p.symbol} $${p.strike} ${p.option_type}`, {
+              body: `P&L: +$${p.pnl_dollars.toFixed(2)} (+${p.pnl_pct.toFixed(1)}%). Ready to buy back or close!`,
+            });
+          }
+        }
+
+        if (p.gamma_danger && !notifiedTriggersSet.has(keyGamma)) {
+          notifiedTriggersSet.add(keyGamma);
+          gammaDangerCount++;
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`⚠️ Gamma Danger Zone: ${p.symbol} (${p.dte} DTE)`, {
+              body: p.roll_plan || `Strike: $${p.strike}. Expiration <14 DTE. Roll out to 42 DTE to avoid gamma explosion!`,
+            });
+          }
+        }
+      });
+
+      if (gammaDangerCount > 0) {
+        playAlertTone('danger');
+      } else if (profitHitCount > 0) {
+        playAlertTone('success');
+      }
+    }
 
     function formatExpDate(expStr, dte) {
       let formattedDate = '';
@@ -1034,6 +1148,7 @@
             <td class="py-4 px-3">
               <div class="text-xl font-black text-white">${s.symbol}</div>
               <div class="text-yellow-300 font-mono text-base font-bold">$${s.spot.toFixed(2)}</div>
+              ${s.earnings_warning ? `<div class="mt-1"><span class="inline-block px-1.5 py-0.5 rounded bg-amber-950/90 border border-amber-500 text-amber-300 text-[10px] font-black">${s.earnings_warning}</span></div>` : ''}
             </td>
             <td class="py-4 px-3 text-xs font-mono">
               <div class="text-slate-200">RSI: <span class="font-bold ${s.rsi_14 < 35 ? 'text-cyan-300' : (s.rsi_14 > 60 ? 'text-rose-300' : 'text-yellow-300')}">${s.rsi_14.toFixed(1)}</span></div>
@@ -1145,6 +1260,11 @@
       });
 
       if (summaryContainer) {
+        const betaSummary = latestBetaSummary || {};
+        const betaDeltaVal = isFiltered ? sumNetDelta : (betaSummary.total_spy_delta_shares !== undefined ? betaSummary.total_spy_delta_shares : sumNetDelta);
+        const betaMove1pct = betaSummary.move_1pct_dollars !== undefined ? betaSummary.move_1pct_dollars : (sumNotional * 0.01);
+        const tiltLabel = betaSummary.portfolio_tilt || 'Market Neutral';
+
         summaryContainer.innerHTML = `
           <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
             <div class="text-xs font-bold text-slate-400 uppercase">Filtered Account</div>
@@ -1157,9 +1277,14 @@
             <div class="text-xs text-slate-400">${sumShares.toLocaleString()} shares</div>
           </div>
           <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
-            <div class="text-xs font-bold text-slate-400 uppercase">Net Delta (Notional)</div>
+            <div class="text-xs font-bold text-slate-400 uppercase">Raw Net Delta (Notional)</div>
             <div class="text-base font-black font-mono ${sumNetDelta >= 0 ? 'text-emerald-300' : 'text-rose-400'}">${sumNetDelta >= 0 ? '+' : ''}${sumNetDelta.toFixed(1)} sh &Delta;</div>
             <div class="text-xs text-slate-400">$${Math.round(sumNotional).toLocaleString()}</div>
+          </div>
+          <div class="bg-slate-900/90 border-2 border-yellow-500/80 rounded-xl p-3 text-center shadow-lg">
+            <div class="text-xs font-black text-yellow-300 uppercase">SPY &beta;-Weighted &Delta;</div>
+            <div class="text-base font-black font-mono ${betaDeltaVal >= 0 ? 'text-emerald-300' : 'text-rose-400'}">${betaDeltaVal >= 0 ? '+' : ''}${betaDeltaVal.toFixed(1)} SPY &Delta;</div>
+            <div class="text-[11px] text-yellow-200 font-bold">&plusmn;1% S&amp;P &asymp; &plusmn;$${Math.round(Math.abs(betaMove1pct)).toLocaleString()}</div>
           </div>
           <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
             <div class="text-xs font-bold text-slate-400 uppercase">Combined P&amp;L / CC</div>
@@ -1208,12 +1333,18 @@
           : '';
         return `
           <tr class="border-b border-slate-700 hover:bg-slate-800/40">
-            <td class="py-3 px-3 text-xl font-black text-white">${row.symbol}</td>
+            <td class="py-3 px-3">
+              <div class="text-xl font-black text-white">${row.symbol}</div>
+              ${row.earnings_warning ? `<div class="mt-1"><span class="inline-block px-1.5 py-0.5 rounded bg-amber-950/90 border border-amber-500 text-amber-300 text-[10px] font-black">${row.earnings_warning}</span></div>` : ''}
+            </td>
             <td class="py-3 px-3 text-xs text-slate-300 font-bold">${acctBreakdownHtml}</td>
             <td class="py-3 px-3 font-mono text-yellow-300">$${row.spot.toFixed(2)} <span class="text-xs text-slate-300">(RSI ${row.rsi_14.toFixed(0)} | IVR ${row.iv_rank.toFixed(0)}%)</span></td>
             <td class="py-3 px-3 font-mono text-cyan-300 font-black">${row.shares} sh <span class="text-xs text-slate-300">($${row.equity_market_value.toLocaleString()})</span>${basisNote}</td>
             <td class="py-3 px-3 font-mono text-purple-300">+${row.long_leap_calls} LEAP / -${row.short_calls} CC / -${row.short_puts} CSP</td>
-            <td class="py-3 px-3 font-mono font-black ${deltaColor}">${row.net_delta_shares >= 0 ? '+' : ''}${row.net_delta_shares.toFixed(1)} sh &Delta; <span class="text-xs text-slate-300">($${Math.round(row.net_notional_exposure).toLocaleString()})</span></td>
+            <td class="py-3 px-3 font-mono font-black ${deltaColor}">
+              <div>${row.net_delta_shares >= 0 ? '+' : ''}${row.net_delta_shares.toFixed(1)} sh &Delta; <span class="text-xs text-slate-300">($${Math.round(row.net_notional_exposure).toLocaleString()})</span></div>
+              <div class="text-xs text-yellow-300 font-bold mt-0.5">&beta; ${(row.beta || 1.0).toFixed(2)} &rarr; <span class="${(row.spy_delta_shares || 0) >= 0 ? 'text-emerald-300' : 'text-rose-400'}">${(row.spy_delta_shares || 0) >= 0 ? '+' : ''}${row.spy_delta_shares || 0} SPY &Delta;</span></div>
+            </td>
             <td class="py-3 px-3 font-mono">${ccBadge}</td>
             ${(row.cc_contract === 'NONE' || !row.cc_is_suggestion || row.cc_strike <= 0) ? `
             <td class="py-3 px-3 font-mono text-xs">
@@ -1320,10 +1451,23 @@
           ? `<span class="text-cyan-300 font-black">+${pos.contracts} sh</span>`
           : `<span class="${pos.contracts > 0 ? 'text-purple-300' : 'text-amber-300'}">${pos.contracts > 0 ? '+' + pos.contracts : pos.contracts}</span>`;
 
+        const earnBadge = pos.earnings_warning
+          ? `<div class="mt-1"><span class="inline-block px-2 py-0.5 rounded bg-amber-950/90 border border-amber-500 text-amber-300 text-[10px] font-black">${pos.earnings_warning}</span></div>`
+          : '';
+        const rollBox = pos.roll_plan
+          ? `<div class="mt-2 p-2 rounded bg-amber-950/90 border border-yellow-500/80 text-yellow-300 text-xs font-mono">
+               <span class="font-black text-amber-300">🎯 Institutional Roll Ticket:</span> ${pos.roll_plan}
+             </div>`
+          : '';
+
         return `
           <tr class="border-b border-slate-700 ${isEquity ? 'bg-cyan-950/20' : ''}">
             <td class="py-3 px-3 text-sm font-bold text-slate-300">${pos.account || 'Manual'}</td>
-            <td class="py-3 px-3 text-lg font-black text-white">${posTitle}</td>
+            <td class="py-3 px-3">
+              <div class="text-lg font-black text-white">${posTitle}</div>
+              ${earnBadge}
+              ${rollBox}
+            </td>
             <td class="py-3 px-3 font-mono text-cyan-300">${expDisplay}</td>
             <td class="py-3 px-3 font-mono">${qtyDisplay}</td>
             <td class="py-3 px-3 font-mono text-yellow-300">$${pos.entry_premium.toFixed(2)} &rarr; $${pos.current_mid.toFixed(2)}</td>
@@ -1409,8 +1553,12 @@
         if (countEl) countEl.innerText = `${data.manual_positions_count} Active`;
       }
 
+      if (data.portfolio_beta_summary) latestBetaSummary = data.portfolio_beta_summary;
       if (data.equity_exposure !== undefined) latestEquityExposure = data.equity_exposure;
-      if (data.manual_positions !== undefined) latestManualPositions = data.manual_positions;
+      if (data.manual_positions !== undefined) {
+        latestManualPositions = data.manual_positions;
+        checkPositionExitAlerts(data.manual_positions);
+      }
       if (data.equity_exposure !== undefined || data.manual_positions !== undefined) {
         renderEquityExposureSection();
         renderManualPositionsSection();
@@ -1430,7 +1578,10 @@
               ? '<span class="px-3 py-1.5 rounded-xl bg-emerald-500 text-black font-black text-xs border border-white">QUALIFIED TRIGGER</span>'
               : `<span class="px-3 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">${w.status || ('WATCH (IVR ' + w.iv_rank.toFixed(0) + '%)')}</span>`;
             tr.innerHTML = `
-              <td class="py-4 px-3 text-xl font-black text-white">${w.symbol}</td>
+              <td class="py-4 px-3">
+  <div class="text-xl font-black text-white">${w.symbol}</div>
+  ${w.earnings_warning ? `<div class="mt-1"><span class="inline-block px-1.5 py-0.5 rounded bg-amber-950/90 border border-amber-500 text-amber-300 text-[10px] font-black">${w.earnings_warning}</span></div>` : ''}
+</td>
               <td class="py-4 px-3 text-white font-mono text-lg">$${w.spot.toFixed(2)}</td>
               <td class="py-4 px-3 ${w.is_qualified ? 'text-emerald-300' : 'text-slate-200'} font-mono">${ivPct}% | IVR ${w.iv_rank.toFixed(0)}%</td>
               <td class="py-4 px-3 text-emerald-300 font-mono">&plusmn;$${move1sd.toFixed(2)} (${w.downside_buffer_pct.toFixed(1)}% OTM)</td>
