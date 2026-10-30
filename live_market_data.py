@@ -130,11 +130,13 @@ class SQLiteMarketCache:
     Minimizes repetitive API calls and provides resilience if rate limits are hit.
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, enabled: bool = False):
+        self.enabled = enabled
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.db_path = db_path or os.path.join(base_dir, "market_cache.db")
         self._lock = threading.Lock()
-        self._init_db()
+        if self.enabled:
+            self._init_db()
 
     def _init_db(self):
         try:
@@ -161,6 +163,8 @@ class SQLiteMarketCache:
             pass
 
     def get(self, key: str, max_age_seconds: Optional[float] = None) -> Optional[Any]:
+        if not self.enabled:
+            return None
         try:
             with self._lock, sqlite3.connect(self.db_path) as conn:
                 row = conn.execute(
@@ -176,6 +180,8 @@ class SQLiteMarketCache:
             return None
 
     def set(self, key: str, value: Any):
+        if not self.enabled:
+            return
         try:
             payload_json = json.dumps(value)
             with self._lock, sqlite3.connect(self.db_path) as conn:
@@ -550,15 +556,21 @@ class LiveMarketClient:
     4. Full try-except Error Resilience with descriptive fallback messages
     """
 
-    def __init__(self, cache_ttl_seconds: int = 45):
+    def __init__(self, cache_ttl_seconds: int = 120):
         self.cache_ttl = cache_ttl_seconds
+        # In-memory TTL cache shared across tabs/endpoints (NOT persisted; cleared on restart). Quotes, charts,
+        # snapshots and option chains expire after CACHE_TTL_SECONDS (default 120s). Persistent SQLite caching and
+        # stale-cache fallbacks are OFF unless USE_CACHE=1. Positions always come from the Fidelity CSV.
+        self.cache_ttl = int(os.environ.get('CACHE_TTL_SECONDS', str(cache_ttl_seconds if cache_ttl_seconds != 45 else 120)))
+        self.chain_cache_enabled = True
+        self.persist_cache_enabled = os.environ.get('USE_CACHE', '0') == '1'
         self._session: Optional[requests.Session] = None
         self._crumb: Optional[str] = None
         self._crumb_time: float = 0
         self._network_backoff_until: float = 0
         self._cache_quotes: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._cache_chains: Dict[str, Tuple[float, List[LiveOptionContract]]] = {}
-        self.sqlite_cache = SQLiteMarketCache()
+        self.sqlite_cache = SQLiteMarketCache(enabled=self.persist_cache_enabled)
         self.schwab_limiter = TokenBucketRateLimiter(max_calls=90, period_seconds=60.0, min_interval_sec=0.05)
         self.yahoo_limiter = TokenBucketRateLimiter(max_calls=30, period_seconds=60.0, min_interval_sec=0.05)
         self.twelve_data_limiter = TokenBucketRateLimiter(max_calls=8, period_seconds=60.0, min_interval_sec=0.25)
@@ -622,7 +634,7 @@ class LiveMarketClient:
         yahoo_sym = TICKER_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
         now = time.time()
 
-        if yahoo_sym in self._cache_quotes:
+        if self.chain_cache_enabled and yahoo_sym in self._cache_quotes:
             cached_time, cached_data = self._cache_quotes[yahoo_sym]
             if (now - cached_time) < self.cache_ttl:
                 return cached_data
@@ -801,12 +813,12 @@ class LiveMarketClient:
         cache_key = f"{symbol}_{target_dte_min}_{target_dte_max}"
         now = time.time()
 
-        if cache_key in self._cache_chains:
+        if self.chain_cache_enabled and cache_key in self._cache_chains:
             t_cached, data = self._cache_chains[cache_key]
             if (now - t_cached) < self.cache_ttl:
                 return data
 
-        sql_chain = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=self.cache_ttl)
+        sql_chain = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=self.cache_ttl) if self.chain_cache_enabled else None
         if sql_chain:
             restored = [LiveOptionContract(**c) for c in sql_chain]
             self._cache_chains[cache_key] = (now, restored)
@@ -821,7 +833,7 @@ class LiveMarketClient:
             return schwab_chain
 
         if now < self._network_backoff_until:
-            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None) if self.chain_cache_enabled else None
             if stale:
                 restored = [LiveOptionContract(**c) for c in stale]
                 self._cache_chains[cache_key] = (now, restored)
@@ -843,7 +855,7 @@ class LiveMarketClient:
             self.yahoo_limiter.acquire()
             r = session.get(url, timeout=7)
             if r.status_code != 200:
-                stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+                stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None) if self.chain_cache_enabled else None
                 return [LiveOptionContract(**c) for c in stale] if stale else []
 
             data = r.json()
@@ -897,7 +909,7 @@ class LiveMarketClient:
 
         except Exception as e:
             sys.stderr.write(f"[OPTION-CHAIN FALLBACK]: {symbol} option chain fetch warning ({e}); checking cache.\n")
-            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None) if self.chain_cache_enabled else None
             if stale:
                 return [LiveOptionContract(**c) for c in stale]
 
@@ -915,14 +927,11 @@ class LiveMarketClient:
         opt_type = option_type.upper()
         bucket_key = f"{sym}_LEAP_ALL_340" if dte >= 180 else f"{sym}_28_55"
 
-        chain: List[LiveOptionContract] = []
-        if bucket_key in self._cache_chains:
-            _, chain = self._cache_chains[bucket_key]
+        # Live (TTL-cached in memory) chain fetch; no persisted or stale data.
+        if dte >= 180:
+            chain = self.get_live_leap_options(sym, min_dte=340, option_type=opt_type)
         else:
-            cached_rows = self.sqlite_cache.get(f"CHAIN_{bucket_key}", max_age_seconds=None)
-            if cached_rows:
-                chain = [LiveOptionContract(**c) for c in cached_rows]
-                self._cache_chains[bucket_key] = (time.time(), chain)
+            chain = self.get_live_option_chain(sym, 28, 55)
 
         matching = [c for c in chain if c.option_type == opt_type and abs(c.strike - strike) < 0.01]
         return matching[0] if matching else None
@@ -934,12 +943,12 @@ class LiveMarketClient:
         now = time.time()
         opt_filter = option_type.upper()
 
-        if cache_key in self._cache_chains:
+        if self.chain_cache_enabled and cache_key in self._cache_chains:
             t_cached, data = self._cache_chains[cache_key]
             if (now - t_cached) < self.cache_ttl:
                 return [c for c in data if c.option_type == opt_filter]
 
-        sql_leap = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=self.cache_ttl)
+        sql_leap = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=self.cache_ttl) if self.chain_cache_enabled else None
         if sql_leap:
             restored = [LiveOptionContract(**c) for c in sql_leap]
             self._cache_chains[cache_key] = (now, restored)
@@ -953,7 +962,7 @@ class LiveMarketClient:
             return [c for c in schwab_leaps if c.option_type == opt_filter]
 
         if now < self._network_backoff_until:
-            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None) if self.chain_cache_enabled else None
             if stale:
                 restored = [LiveOptionContract(**c) for c in stale]
                 self._cache_chains[cache_key] = (now, restored)
@@ -975,7 +984,7 @@ class LiveMarketClient:
             self.yahoo_limiter.acquire()
             r = session.get(url, timeout=7)
             if r.status_code != 200:
-                stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+                stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None) if self.chain_cache_enabled else None
                 return [LiveOptionContract(**c) for c in stale if c.get("option_type") == opt_filter] if stale else []
 
             data = r.json()
@@ -1018,13 +1027,13 @@ class LiveMarketClient:
                         contracts.append(c)
 
             if contracts:
-                self._log_feed("Yahoo Finance", symbol, f"Option Chain: {len(contracts)} contracts ({target_dte_min}-{target_dte_max} DTE)")
+                self._log_feed("Yahoo Finance", symbol, f"LEAP Option Chain: {len(contracts)} contracts ({min_dte}+ DTE)")
                 self._cache_chains[cache_key] = (now, contracts)
                 self.sqlite_cache.set(f"CHAIN_{cache_key}", [asdict(c) for c in contracts])
 
         except Exception as e:
             sys.stderr.write(f"[LEAP-CHAIN FALLBACK]: {symbol} LEAP chain fetch warning ({e}); checking cache.\n")
-            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None)
+            stale = self.sqlite_cache.get(f"CHAIN_{cache_key}", max_age_seconds=None) if self.chain_cache_enabled else None
             if stale:
                 return [LiveOptionContract(**c) for c in stale if c.get("option_type") == opt_filter]
 

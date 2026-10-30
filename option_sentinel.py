@@ -23,6 +23,7 @@ import http.server
 import json
 import math
 import os
+import re
 import socket
 import socketserver
 import sys
@@ -34,6 +35,17 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from live_market_data import LiveMarketClient, LiveOptionContract, LiveTickerSnapshot, TICKER_SYMBOL_MAP
+
+
+def parse_occ_expiration(contract_symbol: str) -> Optional[str]:
+    """Extracts ISO YYYY-MM-DD expiration date from an OCC contract symbol (e.g. TLT261127P00078000 -> 2026-11-27)."""
+    if not contract_symbol:
+        return None
+    m = re.search(r"([A-Z]+)(\d{2})(\d{2})(\d{2})[CP]", contract_symbol.upper())
+    if m:
+        yy, mm, dd = m.group(2), m.group(3), m.group(4)
+        return f"20{yy}-{mm}-{dd}"
+    return None
 
 
 # ==============================================================================
@@ -193,6 +205,7 @@ class WheelStrikeRecommendation:
     profit_target_50: float
     annualized_roc: float
     downside_buffer_pct: float
+    expiration: str = ""
     roll_trigger_dte: int = 14
     iv_percentile_6m: float = 0.0
     expected_1sd_move: float = 0.0
@@ -229,6 +242,14 @@ class LeapRecommendation:
     pmcc_gap_safety: str
     pmcc_cash_flow_yield_pct: float
     workflow_queue: str
+    leap_expiration: str = ""
+    pmcc_expiration: str = ""
+    leap_delta: float = 0.85
+    leap_theta: float = -0.01
+    pmcc_bid: float = 0.0
+    pmcc_ask: float = 0.0
+    pmcc_delta: float = 0.30
+    pmcc_theta: float = -0.04
     name: str = ""
     is_qualified: bool = False
     status: str = "WATCHLIST"
@@ -320,6 +341,7 @@ class StrategyScanner:
             live_contract = f"{sym}-PUT-${snapped_k:.1f}"
             bid, ask, mid = 0.0, 0.0, 0.0
             delta_val, gamma_val, theta_val = target_delta, 0.01, -0.05
+            exp_date = ""
 
             chain = self.market_client.get_live_option_chain(sym, 28, 55)
             puts = [c for c in chain if c.option_type == "PUT"]
@@ -328,12 +350,18 @@ class StrategyScanner:
                 live_contract = closest_put.contract_symbol
                 snapped_k = closest_put.strike
                 target_dte = closest_put.dte
+                exp_date = closest_put.expiration
                 bid = closest_put.bid
                 ask = closest_put.ask
                 mid = closest_put.mid
                 delta_val = closest_put.delta_approx
                 gamma_val = closest_put.gamma_approx
                 theta_val = closest_put.theta_approx
+
+            if not exp_date and live_contract:
+                exp_date = parse_occ_expiration(live_contract) or ""
+            if not exp_date and target_dte:
+                exp_date = (datetime.date.today() + datetime.timedelta(days=target_dte)).isoformat()
 
             if mid <= 0:
                 mid = round(self.math.black_scholes_price(spot, snapped_k, target_dte, iv, 0.045, is_call=False), 2)
@@ -368,6 +396,7 @@ class StrategyScanner:
                 profit_target_50=profit_target_50,
                 annualized_roc=annualized_roc,
                 downside_buffer_pct=downside_buffer,
+                expiration=exp_date,
                 roll_trigger_dte=14,
                 iv_percentile_6m=snap.iv_percentile_6m,
                 expected_1sd_move=round(move_1sd, 2),
@@ -400,9 +429,16 @@ class StrategyScanner:
             leap_strike = round(spot * 0.85)
             leap_bid, leap_ask, leap_mid = 0.0, 0.0, 0.0
             leap_dte = 390
+            leap_exp = ""
+            leap_delta_val = 0.85
+            leap_theta_val = -0.01
 
             leaps = self.market_client.get_live_leap_options(sym, min_dte=340)
             if leaps:
+                # One expiration only (closest to 390 DTE), tradable (live bid/ask) strikes preferred.
+                leaps = [c for c in leaps if c.bid > 0 and c.ask > 0] or leaps
+                _leap_exp = min(leaps, key=lambda c: abs(c.dte - 390)).expiration
+                leaps = [c for c in leaps if c.expiration == _leap_exp]
                 best_leap = min(leaps, key=lambda c: abs(c.delta_approx - 0.85))
                 leap_contract = best_leap.contract_symbol
                 leap_strike = best_leap.strike
@@ -410,6 +446,14 @@ class StrategyScanner:
                 leap_ask = best_leap.ask
                 leap_mid = best_leap.mid
                 leap_dte = best_leap.dte
+                leap_exp = best_leap.expiration
+                leap_delta_val = best_leap.delta_approx
+                leap_theta_val = best_leap.theta_approx
+
+            if not leap_exp and leap_contract:
+                leap_exp = parse_occ_expiration(leap_contract) or ""
+            if not leap_exp and leap_dte:
+                leap_exp = (datetime.date.today() + datetime.timedelta(days=leap_dte)).isoformat()
 
             if leap_mid <= 0:
                 leap_mid = round(self.math.black_scholes_price(spot, leap_strike, leap_dte, iv, 0.045, is_call=True), 2)
@@ -423,15 +467,33 @@ class StrategyScanner:
             pmcc_strike = round(spot * 1.04)
             pmcc_mid = round(spot * 0.015, 2)
             pmcc_dte = 45
+            pmcc_exp = ""
+            pmcc_bid = 0.0
+            pmcc_ask = 0.0
+            pmcc_delta_val = 0.30
+            pmcc_theta_val = -0.04
 
             chain = self.market_client.get_live_option_chain(sym, 28, 55)
             calls = [c for c in chain if c.option_type == "CALL"]
+            calls = [c for c in calls if c.bid > 0 and c.ask > 0] or calls
             if calls:
+                _pm_exp = min(calls, key=lambda c: abs(c.dte - 45)).expiration
+                calls = [c for c in calls if c.expiration == _pm_exp]
                 best_pmcc = min(calls, key=lambda c: abs(c.delta_approx - 0.30))
                 pmcc_contract = best_pmcc.contract_symbol
                 pmcc_strike = best_pmcc.strike
+                pmcc_bid = best_pmcc.bid
+                pmcc_ask = best_pmcc.ask
                 pmcc_mid = best_pmcc.mid
                 pmcc_dte = best_pmcc.dte
+                pmcc_exp = best_pmcc.expiration
+                pmcc_delta_val = best_pmcc.delta_approx
+                pmcc_theta_val = best_pmcc.theta_approx
+
+            if not pmcc_exp and pmcc_contract:
+                pmcc_exp = parse_occ_expiration(pmcc_contract) or ""
+            if not pmcc_exp and pmcc_dte:
+                pmcc_exp = (datetime.date.today() + datetime.timedelta(days=pmcc_dte)).isoformat()
 
             net_debit = round(leap_mid - pmcc_mid, 2)
             pmcc_yield = round((pmcc_mid / net_debit) * 100.0, 2) if net_debit > 0 else 0.0
@@ -439,7 +501,7 @@ class StrategyScanner:
 
             intrinsic = max(0.0, spot - leap_strike)
             extrinsic = max(0.0, leap_mid - intrinsic)
-            effective_leverage = round((0.85 * spot) / leap_mid, 2) if leap_mid > 0 else 0.0
+            effective_leverage = round((max(0.01, leap_delta_val) * spot) / leap_mid, 2) if leap_mid > 0 else 0.0
             annual_drag = round((extrinsic / spot) * (365.0 / max(1, leap_dte)) * 100.0, 2) if spot > 0 else 0.0
             spread_width = round(pmcc_strike - leap_strike, 2)
             gap_safety = "SAFE: Zero Upside Gap Risk" if spread_width >= net_debit else "MONITOR: Upside Risk"
@@ -473,6 +535,14 @@ class StrategyScanner:
                 pmcc_gap_safety=gap_safety,
                 pmcc_cash_flow_yield_pct=pmcc_yield,
                 workflow_queue=workflow,
+                leap_expiration=leap_exp,
+                pmcc_expiration=pmcc_exp,
+                leap_delta=leap_delta_val,
+                leap_theta=leap_theta_val,
+                pmcc_bid=pmcc_bid,
+                pmcc_ask=pmcc_ask,
+                pmcc_delta=pmcc_delta_val,
+                pmcc_theta=pmcc_theta_val,
                 name=meta.name,
                 is_qualified=is_qualified,
                 status=status_str,
@@ -509,6 +579,8 @@ class StrategyScanner:
             leap_strike = round(spot * 1.15)
             leap_bid, leap_ask, leap_mid = 0.0, 0.0, 0.0
             leap_dte = 390
+            leap_exp = ""
+            leap_delta_val = -0.85
 
             leaps = self.market_client.get_live_leap_options(sym, min_dte=340, option_type="PUT")
             if leaps:
@@ -519,6 +591,13 @@ class StrategyScanner:
                 leap_ask = best_leap.ask
                 leap_mid = best_leap.mid
                 leap_dte = best_leap.dte
+                leap_exp = best_leap.expiration
+                leap_delta_val = best_leap.delta_approx
+
+            if not leap_exp and leap_contract:
+                leap_exp = parse_occ_expiration(leap_contract) or ""
+            if not leap_exp and leap_dte:
+                leap_exp = (datetime.date.today() + datetime.timedelta(days=leap_dte)).isoformat()
 
             if leap_mid <= 0:
                 leap_mid = round(self.math.black_scholes_price(spot, leap_strike, leap_dte, iv, 0.045, is_call=False), 2)
@@ -532,6 +611,10 @@ class StrategyScanner:
             pmcp_strike = round(spot * 0.96)
             pmcp_mid = round(spot * 0.015, 2)
             pmcp_dte = 45
+            pmcp_exp = ""
+            pmcp_bid = 0.0
+            pmcp_ask = 0.0
+            pmcp_delta_val = -0.30
 
             chain = self.market_client.get_live_option_chain(sym, 28, 55)
             puts = [c for c in chain if c.option_type == "PUT"]
@@ -541,11 +624,18 @@ class StrategyScanner:
                 pmcp_strike = best_pmcp.strike
                 pmcp_mid = best_pmcp.mid
                 pmcp_dte = best_pmcp.dte
+                pmcp_exp = best_pmcp.expiration
+                pmcp_delta_val = best_pmcp.delta_approx
+
+            if not pmcp_exp and pmcp_contract:
+                pmcp_exp = parse_occ_expiration(pmcp_contract) or ""
+            if not pmcp_exp and pmcp_dte:
+                pmcp_exp = (datetime.date.today() + datetime.timedelta(days=pmcp_dte)).isoformat()
 
             net_debit = round(leap_mid - pmcp_mid, 2)
             intrinsic = max(0.0, leap_strike - spot)
             extrinsic = max(0.0, leap_mid - intrinsic)
-            effective_leverage = round((0.85 * spot) / leap_mid, 2) if leap_mid > 0 else 0.0
+            effective_leverage = round((max(0.01, abs(leap_delta_val)) * spot) / leap_mid, 2) if leap_mid > 0 else 0.0
             annual_drag = round((extrinsic / spot) * (365.0 / max(1, leap_dte)) * 100.0, 2) if spot > 0 else 0.0
             spread_width = round(leap_strike - pmcp_strike, 2)
             gap_safety = "SAFE: Zero Downside Crash Risk" if spread_width >= net_debit else "MONITOR: Spread < Debit"
@@ -560,6 +650,8 @@ class StrategyScanner:
                 "status": "QUALIFIED PUT TRIGGER" if is_qualified else "CHECK / WATCHLIST",
                 "leap_target_delta": -0.85,
                 "leap_target_dte": leap_dte,
+                "leap_expiration": leap_exp,
+                "leap_delta": leap_delta_val,
                 "leap_strike": leap_strike,
                 "leap_contract": leap_contract,
                 "leap_bid": leap_bid,
@@ -572,6 +664,10 @@ class StrategyScanner:
                 "pmcp_contract": pmcp_contract,
                 "pmcp_mid": pmcp_mid,
                 "pmcp_dte": pmcp_dte,
+                "pmcp_expiration": pmcp_exp,
+                "pmcp_bid": pmcp_bid,
+                "pmcp_ask": pmcp_ask,
+                "pmcp_delta": pmcp_delta_val,
                 "net_debit": net_debit,
                 "spread_width": spread_width,
                 "gap_safety": gap_safety,
@@ -649,6 +745,7 @@ class GammaDangerSentinel:
                     "symbol": sym,
                     "strike": strike,
                     "option_type": opt_type,
+                    "expiration": exp_str,
                     "dte": dte,
                     "delta": delta_val,
                     "gamma": gamma_val,
@@ -808,9 +905,11 @@ class GammaDangerSentinel:
 
         for pos in positions:
             sym = pos["symbol"]
-            if sym not in by_symbol:
+            # One exposure row per (ticker, account)
+            group_key = f"{sym}||{pos.get('account', 'Manual')}"
+            if group_key not in by_symbol:
                 snap = self.scanner.snapshots.get(sym)
-                by_symbol[sym] = {
+                by_symbol[group_key] = {
                     "symbol": sym,
                     "spot": snap.spot if snap else pos["current_mid"],
                     "rsi_14": snap.rsi_14 if snap else 50.0,
@@ -829,7 +928,7 @@ class GammaDangerSentinel:
                     "options_pnl_dollars": 0.0,
                 }
 
-            entry = by_symbol[sym]
+            entry = by_symbol[group_key]
             acct_name = pos.get("account", "Manual")
             entry["accounts"].add(acct_name)
             if acct_name not in entry["by_account"]:
@@ -877,7 +976,8 @@ class GammaDangerSentinel:
                         entry["long_puts"] += qty
 
         exposure_rows: List[Dict[str, Any]] = []
-        for sym, item in by_symbol.items():
+        for _group_key, item in by_symbol.items():
+            sym = item["symbol"]
             spot = item["spot"]
             shares = item["shares"]
             leaps = item["long_leap_calls"]
@@ -899,8 +999,45 @@ class GammaDangerSentinel:
 
             chain = self.scanner.market_client.get_live_option_chain(sym, 28, 55)
             calls = [c for c in chain if c.option_type == "CALL"]
+            # Only tradable strikes: require a live two-sided market (bid > 0). A 0-bid contract's "mid" is a stale last
+            # price (e.g. SOXL 167C: bid 0.00 / ask 3.15 / last 0.88) that cannot actually be filled.
+            live_calls = [c for c in calls if c.bid > 0 and c.ask > 0]
+            if live_calls:
+                calls = live_calls
+            # Prefer liquid strikes (tight spread, real open interest) so the quote is actually fillable.
+            liquid_calls = [
+                c for c in calls
+                if c.open_interest >= 100 and (c.ask - c.bid) <= max(0.10, 0.15 * c.mid)
+            ]
+            if liquid_calls:
+                calls = liquid_calls
+            # Single expiration only (nearest in window) so strike/credit/DTE come from one consistent chain.
             if calls:
-                best_cc = min(calls, key=lambda c: abs(c.delta_approx - 0.30))
+                _near_exp = min(calls, key=lambda c: c.dte).expiration
+                calls = [c for c in calls if c.expiration == _near_exp]
+            # Breakeven floor: never suggest a covered call strike below this row's LEAP breakeven / share basis
+            cc_floor = 0.0
+            for _ai in item["by_account"].values():
+                if _ai["leap_calls"] > 0:
+                    cc_floor = max(cc_floor, _ai["leap_be_sum"] / _ai["leap_calls"])
+                if _ai["shares"] >= 100:
+                    cc_floor = max(cc_floor, _ai["equity_cost_sum"] / _ai["shares"])
+            cc_floor = round(cc_floor, 2)
+            cc_floor_applied = False
+            best_cc = None
+            if calls:
+                if cc_floor > 0:
+                    # STRICT CAPITAL PROTECTION: Never suggest any call below cost basis / LEAP breakeven.
+                    eligible = [c for c in calls if c.strike >= cc_floor and (c.bid > 0.05 or c.last_price > 0.05)]
+                    if eligible:
+                        cc_floor_applied = True
+                        best_cc = min(eligible, key=lambda c: abs(c.delta_approx - 0.30))
+                    else:
+                        best_cc = None
+                else:
+                    best_cc = min(calls, key=lambda c: abs(c.delta_approx - 0.30))
+
+            if best_cc:
                 cc_contract = best_cc.contract_symbol
                 cc_strike = best_cc.strike
                 cc_mid = best_cc.mid
@@ -908,6 +1045,16 @@ class GammaDangerSentinel:
                 cc_ask = best_cc.ask
                 cc_dte = best_cc.dte
                 cc_exp = best_cc.expiration
+                cc_is_suggestion = True
+            else:
+                cc_contract = "NONE"
+                cc_strike = 0.0
+                cc_mid = 0.0
+                cc_bid = 0.0
+                cc_ask = 0.0
+                cc_dte = 0
+                cc_exp = ""
+                cc_is_suggestion = False
 
             cc_exit_50 = round(cc_mid * 0.50, 2)
             cc_total_credit = round(max(1, cc_capacity) * cc_mid * 100.0, 2)
@@ -932,7 +1079,7 @@ class GammaDangerSentinel:
                     if a_sh >= 100:
                         src_parts.append(f"{a_sh}sh @ ${a_eq_basis:.2f} basis")
                     if a_leaps > 0:
-                        src_parts.append(f"+{a_leaps} LEAP @ ${a_leap_be:.2f} B/E")
+                        src_parts.append(f"{a_leaps} LEAP @ ${a_leap_be:.2f} B/E" if src_parts else f"+{a_leaps} LEAP @ ${a_leap_be:.2f} B/E")
                     src_label = " + ".join(src_parts)
                     if a_cap > 0:
                         account_cc_breakdown.append(f"{acct_name}: {a_cap}x CC ({src_label})")
@@ -943,42 +1090,54 @@ class GammaDangerSentinel:
                                 sc_safe = min(above_calls, key=lambda c: c.strike)
                                 safe_hint = f" (Safe above-basis strike: ${sc_safe.strike:g} Call @ ${sc_safe.mid:.2f})"
                             cost_basis_warnings.append(
-                                f"⚠️ {acct_name}: 0.30Δ ${cc_strike:g} Call is BELOW ${a_eq_basis:.2f} share cost basis!{safe_hint}"
+                                f"[!] {acct_name}: 0.30D ${cc_strike:g} Call (suggested new sale, not a position you hold) is BELOW ${a_eq_basis:.2f} share cost basis!{safe_hint}"
                             )
                         if a_leaps > 0 and cc_strike < a_leap_be:
                             cost_basis_warnings.append(
-                                f"⚠️ {acct_name}: 0.30Δ ${cc_strike:g} Call is BELOW ${a_leap_be:.2f} LEAP breakeven!"
+                                f"[!] {acct_name}: 0.30D ${cc_strike:g} Call (suggested new sale, not a position you hold) is BELOW ${a_leap_be:.2f} LEAP breakeven!"
                             )
                     else:
                         account_cc_breakdown.append(f"{acct_name}: COVERED ({a_sc}/{a_lots} short calls active)")
                 elif a_sp > 0:
-                    account_cc_breakdown.append(f"{acct_name}: 0x CC (-{a_sp} CSP only — cannot sell CC on Puts)")
+                    account_cc_breakdown.append(f"{acct_name}: 0x CC (-{a_sp} CSP only -- cannot sell CC on Puts)")
 
             rsi = item["rsi_14"]
             ivr = item["iv_rank"]
             meta = WATCHLIST_MATRIX.get(sym)
             is_lev = meta.is_leveraged if meta else (sym in ("TQQQ", "SOXL", "SPXL"))
 
-            if cc_capacity > 0 and (rsi > 60.0 or ivr > 35.0):
+            has_below_basis_warning = len(cost_basis_warnings) > 0
+            protect_floor = max(avg_equity_basis, cc_floor)
+            protect_label = f"Share Basis ${avg_equity_basis:.2f}" if avg_equity_basis > 0 else f"LEAP B/E ${cc_floor:.2f}"
+
+            # 1. CAPITAL DEFENSE GUARD: Never advise "SELL NOW" if strike is below basis or underwater
+            if cc_capacity > 0 and (has_below_basis_warning or not cc_is_suggestion or (cc_floor > 0 and spot < cc_floor)):
+                strike_msg = f"Strike ${cc_strike:g}" if cc_strike > 0 else f"Spot ${spot:.2f}"
+                when_to_sell = f"DO NOT SELL BELOW BASIS ({strike_msg} < {protect_label})"
+                directive = (
+                    f"CAPITAL DEFENSE: No safe call suggested! Spot (${spot:.2f}) is below your {protect_label} (${protect_floor:.2f}). "
+                    f"Selling calls below basis risks locking in a loss. Hold shares for rebound or sell calls >=${protect_floor:.2f} only."
+                )
+            # 2. Oversold / Beaten-Down RSI Guard: Do not sell calls during a deep pullback right before a bounce
+            elif cc_capacity > 0 and rsi < 45.0:
+                when_to_sell = f"WAIT FOR BOUNCE (RSI {rsi:.1f} Pullback -> Wait for RSI > 50)"
+                if is_lev:
+                    directive = (
+                        f"WAIT FOR RSI > 50 BOUNCE: Selling calls during a dip caps recovery upside. Hold Shares / Sell 0.20Δ CSP on dips."
+                    )
+                else:
+                    directive = (
+                        f"WAIT FOR RSI > 50 BOUNCE: Selling calls during a dip caps recovery upside. Hold Shares / Accumulate."
+                    )
+            # 3. Qualified covered call sale on elevated IV or strong green day:
+            elif cc_capacity > 0 and (rsi > 60.0 or ivr > 35.0):
                 when_to_sell = f"SELL NOW (IVR {ivr:.0f}% / RSI {rsi:.0f} Qualified)"
                 directive = (
                     f"SELL NOW: STO {cc_capacity}x ${cc_strike} Call exp {cc_exp} ({cc_dte} DTE) "
                     f"@ ${cc_mid:.2f} (+${cc_total_credit:,.0f} credit) | Exit @ ${cc_exit_50:.2f} (50%) or 14 DTE"
                 )
-            elif rsi < 35.0:
-                when_to_sell = f"WAIT FOR BOUNCE (RSI {rsi:.1f} < 35 Oversold -> Wait for RSI > 45)"
-                if is_lev:
-                    directive = (
-                        f"WAIT FOR RSI > 45 BOUNCE: Then STO {max(1, cc_capacity)}x ${cc_strike} Call exp {cc_exp} "
-                        f"({cc_dte} DTE) @ target >=${cc_mid:.2f} | Now: Hold Shares / Sell 0.20Δ CSP"
-                    )
-                else:
-                    directive = (
-                        f"WAIT FOR RSI > 45 BOUNCE: Then STO {max(1, cc_capacity)}x ${cc_strike} Call exp {cc_exp} "
-                        f"({cc_dte} DTE) @ target >=${cc_mid:.2f} | Now: Accumulate Shares / 0.85Δ LEAP"
-                    )
             elif cc_capacity > 0:
-                when_to_sell = f"SELL ON GREEN DAY / NOW (RSI {rsi:.0f} Neutral, IVR {ivr:.0f}%)"
+                when_to_sell = f"SELL ON GREEN DAY (RSI {rsi:.0f} Neutral, IVR {ivr:.0f}%)"
                 directive = (
                     f"READY: STO {cc_capacity}x ${cc_strike} Call exp {cc_exp} ({cc_dte} DTE) "
                     f"@ ${cc_mid:.2f} (+${cc_total_credit:,.0f} credit) | Exit @ ${cc_exit_50:.2f} (50%) or 14 DTE"
@@ -1010,6 +1169,9 @@ class GammaDangerSentinel:
                 "net_notional_exposure": net_notional,
                 "covered_call_capacity": cc_capacity,
                 "cc_contract": cc_contract,
+                "cc_is_suggestion": True,
+                "cc_breakeven_floor": cc_floor,
+                "cc_floor_applied": cc_floor_applied,
                 "cc_strike": cc_strike,
                 "cc_expiration": cc_exp,
                 "cc_dte": cc_dte,
@@ -1023,7 +1185,11 @@ class GammaDangerSentinel:
                 "directive": directive,
             })
 
-        exposure_rows.sort(key=lambda r: abs(r["net_notional_exposure"]), reverse=True)
+        # Group rows by ticker (largest total ticker exposure first), then by account
+        ticker_totals: Dict[str, float] = {}
+        for r in exposure_rows:
+            ticker_totals[r["symbol"]] = ticker_totals.get(r["symbol"], 0.0) + abs(r["net_notional_exposure"])
+        exposure_rows.sort(key=lambda r: (-ticker_totals[r["symbol"]], r["symbol"], r["accounts"]))
         return exposure_rows
 
     def add_manual_position(
@@ -1083,7 +1249,7 @@ class GammaDangerSentinel:
 
 class AutoSyncManager:
     """Refreshes live market snapshots in the background every interval_sec."""
-    def __init__(self, scanner: StrategyScanner, sentinel: GammaDangerSentinel, interval_sec: int = 60):
+    def __init__(self, scanner: StrategyScanner, sentinel: GammaDangerSentinel, interval_sec: int = 120):
         self.scanner = scanner
         self.sentinel = sentinel
         self.interval = interval_sec
@@ -1232,6 +1398,9 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
         payload = json.dumps(data, indent=2).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Connection", "close")
         self.send_header("Content-Length", str(len(payload)))
@@ -1261,6 +1430,18 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             closest_put = min(puts, key=lambda c: abs(c.strike - safe_k)) if puts else None
             live_contract = closest_put.contract_symbol if closest_put else f"{l_sym}-CSP-0.20D"
             live_mid = closest_put.mid if closest_put else round(spot * 0.03, 2)
+            target_dte = closest_put.dte if closest_put else dte
+            exp_date = closest_put.expiration if closest_put else ""
+            bid = closest_put.bid if closest_put else round(max(0.01, live_mid * 0.95), 2)
+            ask = closest_put.ask if closest_put else round(live_mid * 1.05, 2)
+            delta_val = closest_put.delta_approx if closest_put else -0.20
+            theta_val = closest_put.theta_approx if closest_put else -0.05
+
+            if not exp_date and live_contract:
+                exp_date = parse_occ_expiration(live_contract) or ""
+            if not exp_date and target_dte:
+                exp_date = (datetime.date.today() + datetime.timedelta(days=target_dte)).isoformat()
+
             leveraged_etfs.append({
                 "symbol": l_sym,
                 "spot": spot,
@@ -1270,11 +1451,19 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
                 "expected_1sd_move": round(move_1sd, 2),
                 "safe_csp_strike": safe_k,
                 "downside_buffer_pct": buffer_pct,
+                "target_dte": target_dte,
+                "expiration": exp_date,
                 "live_contract": live_contract,
+                "bid": bid,
+                "ask": ask,
                 "live_mid": live_mid,
+                "delta": delta_val,
+                "theta": theta_val,
                 "target_delta": -0.20,
+                "required_collateral": safe_k * 100.0,
+                "max_profit_credit": round(live_mid * 100.0, 2),
                 "profit_target_50": round(live_mid * 0.50, 2),
-                "annualized_roc_est": round(((live_mid / safe_k) * (365.0 / dte)) * 100.0, 1) if safe_k > 0 else 0.0,
+                "annualized_roc_est": round(((live_mid / safe_k) * (365.0 / target_dte)) * 100.0, 1) if safe_k > 0 else 0.0,
                 "volatility_drag_warning": "CRITICAL: Never hold long LEAP calls. 3x daily rebalance causes severe beta decay in sideways regimes.",
                 "recommended_strategy": "Harvest Volatility Drag: Sell 0.20 Delta Cash-Secured Puts (50% profit exit) or Defined-Risk Put Credit Spreads."
             })
@@ -1321,6 +1510,9 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
         payload = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.send_header("Connection", "close")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
@@ -1356,6 +1548,16 @@ def main():
 
     args = parser.parse_args()
 
+    # Always rebuild positions.csv from the newest CSV in the Fidelity/ folder on startup
+    try:
+        from convert_fidelity_positions import convert_latest_fidelity_to_positions
+        _src, _converted = convert_latest_fidelity_to_positions()
+        print(f"[STARTUP] positions.csv rebuilt from Fidelity/{os.path.basename(_src)} ({len(_converted)} positions)")
+    except FileNotFoundError as e:
+        print(f"[STARTUP WARNING] {e} -- using existing positions.csv as-is")
+    except Exception as e:
+        print(f"[STARTUP WARNING] Fidelity import failed ({e}) -- using existing positions.csv as-is")
+
     scanner = StrategyScanner()
     sentinel = GammaDangerSentinel(scanner, positions_file="positions.csv")
 
@@ -1383,7 +1585,7 @@ def main():
         SentinelRequestHandler.scanner = scanner
         SentinelRequestHandler.sentinel = sentinel
 
-        auto_syncer = AutoSyncManager(scanner, sentinel, interval_sec=60)
+        auto_syncer = AutoSyncManager(scanner, sentinel, interval_sec=120)
         auto_syncer.start()
 
         port = args.port
