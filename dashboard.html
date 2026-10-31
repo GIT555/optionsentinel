@@ -197,27 +197,27 @@
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="flex space-x-3 border-b-2 border-slate-700 pb-3 overflow-x-auto text-sm md:text-base font-black">
-      <button onclick="showTab('wheel')" id="tabBtn-wheel" class="px-5 py-3 rounded-xl bg-emerald-500 text-black border-2 border-white shadow-lg transition">
-        1. The Wheel: Cash-Secured Puts (Live 1-SD Strikes)
+    <div class="flex space-x-2 border-b-2 border-slate-700 pb-2.5 overflow-x-auto text-xs md:text-sm font-black scrollbar-thin">
+      <button onclick="showTab('wheel')" id="tabBtn-wheel" class="px-3.5 py-2 rounded-xl bg-emerald-500 text-black border-2 border-white shadow-lg transition whitespace-nowrap flex-shrink-0">
+        1. The Wheel (CSP)
       </button>
-      <button onclick="showTab('leap')" id="tabBtn-leap" class="px-5 py-3 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition">
-        2. LEAP Replacement &amp; PMCC Diagonals
+      <button onclick="showTab('leap')" id="tabBtn-leap" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0">
+        2. LEAP &amp; PMCC
       </button>
-      <button onclick="showTab('leveraged')" id="tabBtn-leveraged" class="px-5 py-3 rounded-xl bg-[#0e172a] text-amber-300 hover:text-white border-2 border-slate-600 transition">
-        3. 3x Leveraged ETFs Strategy Guide (TQQQ, SOXL, SPXL)
+      <button onclick="showTab('leveraged')" id="tabBtn-leveraged" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-amber-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0">
+        3. 3x Leveraged ETFs
       </button>
-      <button onclick="showTab('telemetry')" id="tabBtn-telemetry" class="px-5 py-3 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition">
-        4. Live Multi-Asset Telemetry (13 Tickers)
+      <button onclick="showTab('telemetry')" id="tabBtn-telemetry" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0">
+        4. Market Telemetry
       </button>
-      <button onclick="showTab('positions')" id="tabBtn-positions" class="px-5 py-3 rounded-xl bg-[#0e172a] text-yellow-300 hover:text-white border-2 border-slate-600 transition">
-        5. Equity Holdings, Net Delta &amp; Options (positions.csv)
+      <button onclick="showTab('positions')" id="tabBtn-positions" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-yellow-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0">
+        5. Holdings &amp; Net Delta
       </button>
-      <button onclick="showTab('spreads')" id="tabBtn-spreads" class="px-5 py-3 rounded-xl bg-[#0e172a] text-indigo-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap">
-        6. Vertical Spreads (Call / Put by Market Regime)
+      <button onclick="showTab('spreads')" id="tabBtn-spreads" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-indigo-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0">
+        6. Vertical Spreads
       </button>
-      <button onclick="showTab('paper-trading')" id="tabBtn-paper-trading" class="px-5 py-3 rounded-xl bg-[#0e172a] text-emerald-300 hover:text-white border-2 border-emerald-500/80 transition whitespace-nowrap shadow-lg">
-        7. 📈 Paper Trading ($100k) &amp; Schwab Trader
+      <button onclick="showTab('paper-trading')" id="tabBtn-paper-trading" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-emerald-300 hover:text-white border-2 border-emerald-500/80 transition whitespace-nowrap flex-shrink-0 shadow-lg">
+        7. 📈 Paper &amp; Orders
       </button>
     </div>
 
@@ -611,15 +611,15 @@
     </div>
 
     <!-- TAB 6: VERTICAL SPREADS (CALL OR PUT BASED ON MARKET CONDITION) -->
-    <div id="panel-spreads" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-6">
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
+    <div id="panel-spreads" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-5 shadow-xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-3">
         <div>
           <h2 class="text-xl md:text-2xl font-black text-white flex items-center space-x-2">
             <span class="h-3.5 w-3.5 rounded-full bg-indigo-400"></span>
-            <span>Dynamic Vertical Spreads: Call or Put by Market Regime</span>
+            <span>Vertical Spreads: Call or Put by Market Regime</span>
           </h2>
-          <p class="text-sm font-bold text-slate-300 mt-1">
-            Quantitative selection engine: Automatically assigns <span class="text-emerald-300 font-black">Bull Put Credit Spreads</span> (oversold dips + high IV), <span class="text-rose-300 font-black">Bear Call Credit Spreads</span> (overbought rallies + high IV), or <span class="text-cyan-300 font-black">Debit Spreads</span> (low IV directional momentum).
+          <p class="text-xs md:text-sm font-bold text-slate-300 mt-1">
+            Quantitative engine: <span class="text-emerald-300 font-black">Bull Put Credit</span> (dips + high IV), <span class="text-rose-300 font-black">Bear Call Credit</span> (rallies + high IV), or <span class="text-cyan-300 font-black">Debit Spreads</span> (low IV momentum).
           </p>
         </div>
         <div class="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-indigo-400">
@@ -632,52 +632,55 @@
         </div>
       </div>
 
-      <!-- Regime Explainer Cards (High IV vs Low IV) -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="bg-[#090d16] border-2 border-emerald-500/80 rounded-xl p-4 space-y-2">
-          <div class="flex items-center justify-between">
-            <h3 class="text-base font-black text-emerald-300">🟢 High IV Regime (IV Rank &ge; 35%): Sell Credit Spreads</h3>
-            <span class="px-2 py-0.5 rounded bg-emerald-500 text-black font-black text-xs">POSITIVE THETA / SHORT VEGA</span>
+      <!-- Regime Strategy Guide (Collapsible to keep table visible on screen) -->
+      <details class="bg-[#090d16] border border-slate-700 rounded-xl p-3 text-xs cursor-pointer group">
+        <summary class="font-bold text-indigo-300 flex items-center justify-between select-none">
+          <span class="flex items-center space-x-2">
+            <span>📘 Strategy Guide: High IV (Credit Spreads) vs Low IV (Debit Spreads) Rules</span>
+          </span>
+          <span class="text-slate-400 group-open:rotate-180 transition-transform text-xs">▼ Click to Expand</span>
+        </summary>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-800">
+          <div class="bg-slate-900/80 border border-emerald-500/50 rounded-lg p-3 space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="font-black text-emerald-300">🟢 High IV Regime (IV Rank &ge; 35%): Sell Credit Spreads</span>
+              <span class="px-2 py-0.5 rounded bg-emerald-500 text-black font-black text-[10px]">POSITIVE THETA</span>
+            </div>
+            <p class="text-[11px] text-slate-300">Options are expensive. Sell near-the-money leg and buy cheaper OTM wing for strict defined risk.</p>
+            <div class="text-[11px] font-mono text-slate-200">
+              <div>• <strong>RSI &le; 50 (Dip):</strong> <span class="text-emerald-300 font-bold">Bull Put Credit Spread</span> (~0.25&Delta; / ~0.15&Delta;)</div>
+              <div>• <strong>RSI &gt; 50 (Rally):</strong> <span class="text-rose-300 font-bold">Bear Call Credit Spread</span> (~0.25&Delta; / ~0.15&Delta;)</div>
+            </div>
           </div>
-          <p class="text-xs text-slate-300">
-            Options are historically expensive. We sell the expensive near-the-money leg and buy a cheaper out-of-the-money wing for strict defined risk. Profit from time decay (theta) and volatility contraction (vega crush).
-          </p>
-          <div class="text-xs font-mono space-y-1 text-slate-200">
-            <div>• <strong>RSI &le; 50 (Dip):</strong> <span class="text-emerald-300 font-bold">Bull Put Credit Spread</span> (STO Put ~0.25&Delta; / BTO Put ~0.15&Delta;). Sell downside fear.</div>
-            <div>• <strong>RSI &gt; 50 (Rally):</strong> <span class="text-rose-300 font-bold">Bear Call Credit Spread</span> (STO Call ~0.25&Delta; / BTO Call ~0.15&Delta;). Fade overbought resistance.</div>
+          <div class="bg-slate-900/80 border border-cyan-500/50 rounded-lg p-3 space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="font-black text-cyan-300">🔵 Low IV Regime (IV Rank &lt; 35%): Buy Debit Spreads</span>
+              <span class="px-2 py-0.5 rounded bg-cyan-500 text-black font-black text-[10px]">CHEAP VOLATILITY</span>
+            </div>
+            <p class="text-[11px] text-slate-300">Options are cheap. Buy directional leg and sell further OTM wing to finance position.</p>
+            <div class="text-[11px] font-mono text-slate-200">
+              <div>• <strong>RSI &le; 50:</strong> <span class="text-cyan-300 font-bold">Bull Call Debit Spread</span> (BTO ATM/ITM + STO OTM)</div>
+              <div>• <strong>RSI &gt; 50:</strong> <span class="text-amber-300 font-bold">Bear Put Debit Spread</span> (BTO ATM/ITM + STO OTM)</div>
+            </div>
           </div>
         </div>
-
-        <div class="bg-[#090d16] border-2 border-cyan-500/80 rounded-xl p-4 space-y-2">
-          <div class="flex items-center justify-between">
-            <h3 class="text-base font-black text-cyan-300">🔵 Low IV Regime (IV Rank &lt; 35%): Buy Debit Spreads</h3>
-            <span class="px-2 py-0.5 rounded bg-cyan-500 text-black font-black text-xs">DEFINED RISK / CHEAP VOLATILITY</span>
-          </div>
-          <p class="text-xs text-slate-300">
-            Options are historically cheap. We buy directional exposure at a steep discount by selling a further OTM strike to finance the position, capping risk strictly at net premium paid.
-          </p>
-          <div class="text-xs font-mono space-y-1 text-slate-200">
-            <div>• <strong>RSI &le; 50:</strong> <span class="text-cyan-300 font-bold">Bull Call Debit Spread</span> (BTO Call ATM/ITM + STO Call OTM). Low-cost upside surge.</div>
-            <div>• <strong>RSI &gt; 50:</strong> <span class="text-amber-300 font-bold">Bear Put Debit Spread</span> (BTO Put ATM/ITM + STO Put OTM). Cheap downside hedging.</div>
-          </div>
-        </div>
-      </div>
+      </details>
 
       <!-- Dynamic Spreads Table -->
       <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm md:text-base border-collapse font-bold">
+        <table class="w-full text-left text-xs md:text-sm border-collapse font-bold">
           <thead>
-            <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase text-xs md:text-sm">
-              <th class="py-3 px-3">Symbol &amp; Spot</th>
-              <th class="py-3 px-3">Market Regime</th>
-              <th class="py-3 px-3">Strategy &amp; Bias</th>
-              <th class="py-3 px-3">Expiration</th>
-              <th class="py-3 px-3">Spread Structure (Strikes &amp; Width)</th>
-              <th class="py-3 px-3">Net Credit / Debit</th>
-              <th class="py-3 px-3">Max Profit / Risk</th>
-              <th class="py-3 px-3">ROC% &amp; POP</th>
-              <th class="py-3 px-3">Breakeven / Buffer</th>
-              <th class="py-3 px-3">Execution Directive &amp; Exit</th>
+            <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase text-xs">
+              <th class="py-2.5 px-3">Symbol &amp; Spot</th>
+              <th class="py-2.5 px-3">Market Regime</th>
+              <th class="py-2.5 px-3">Strategy &amp; Bias</th>
+              <th class="py-2.5 px-3">Expiration</th>
+              <th class="py-2.5 px-3">Spread Structure</th>
+              <th class="py-2.5 px-3">Net Price</th>
+              <th class="py-2.5 px-3">Max P/L</th>
+              <th class="py-2.5 px-3">ROC &amp; POP</th>
+              <th class="py-2.5 px-3">Breakeven / Cushion</th>
+              <th class="py-2.5 px-3 text-right">Action</th>
             </tr>
           </thead>
           <tbody id="spreadTableBody" class="divide-y-2 divide-slate-700 font-mono">
@@ -687,7 +690,7 @@
       </div>
     </div>
 
-    <!-- TAB 7: PAPER TRADING & SCHWAB TRADER HUD -->
+    <!-- TAB 7:<!-- TAB 7: PAPER TRADING & SCHWAB TRADER HUD -->
     <div id="panel-paper-trading" class="hidden bg-[#0e172a] border-2 border-emerald-500 rounded-2xl p-6 shadow-2xl space-y-6">
       
       <!-- Top Title & Mode Banner -->
@@ -747,24 +750,19 @@
         </div>
       </div>
 
-      <!-- Schwab Trader API Status Card -->
-      <div class="bg-[#090d16] border-2 border-cyan-500/80 rounded-xl p-4 space-y-3">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center space-x-2">
-            <span class="text-cyan-300 text-lg">🔗</span>
-            <h3 class="text-base font-black text-white">Charles Schwab Trader API Integration Status</h3>
-          </div>
-          <span id="schwabTraderBadge" class="px-3 py-1 rounded-full text-xs font-black bg-cyan-950 border border-cyan-400 text-cyan-300">
-            Checking Trader API Scope...
-          </span>
+      <!-- Schwab Trader API Status Banner -->
+      <div class="bg-[#090d16] border border-cyan-500/70 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center space-x-2 flex-wrap">
+          <span class="text-cyan-300 text-base">🔗</span>
+          <span class="text-xs md:text-sm font-bold text-white">Charles Schwab Trader API:</span>
+          <span id="schwabTraderNotice" class="text-xs text-slate-300">Market Data Active &bull; Enable 'Accounts and Trading' in Schwab Developer Portal to route live orders.</span>
         </div>
-        <p id="schwabTraderNotice" class="text-xs md:text-sm text-slate-300 font-bold">
-          Your current Schwab OAuth token is configured for <strong>100% Real-Time Market Data</strong>. 
-          When you enable <strong>Accounts and Trading Production</strong> on your Schwab Developer App, Option Sentinel will automatically detect your linked brokerage accounts and allow live dry-run previews and order routing!
-        </p>
+        <span id="schwabTraderBadge" class="px-2.5 py-0.5 rounded-full text-xs font-black bg-cyan-950 border border-cyan-400 text-cyan-300">
+          Checking Scope...
+        </span>
       </div>
 
-      <!-- Open Paper Positions Table -->
+      <!-- Open Paper Positions Table --><!-- Open Paper Positions Table -->
       <div class="space-y-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h3 class="text-lg font-black text-yellow-300">📋 Open Paper Positions (Live Mark-to-Market)</h3>
@@ -1356,44 +1354,44 @@
 
         return `
           <tr class="${rowCls}">
-            <td class="py-4 px-3">
-              <div class="text-xl font-black text-white">${s.symbol}</div>
-              <div class="text-yellow-300 font-mono text-base font-bold">$${s.spot.toFixed(2)}</div>
+            <td class="py-2.5 px-3">
+              <div class="text-base font-black text-white">${s.symbol}</div>
+              <div class="text-yellow-300 font-mono text-xs font-bold">$${s.spot.toFixed(2)}</div>
               ${s.earnings_warning ? `<div class="mt-1"><span class="inline-block px-1.5 py-0.5 rounded bg-amber-950/90 border border-amber-500 text-amber-300 text-[10px] font-black">${s.earnings_warning}</span></div>` : ''}
             </td>
-            <td class="py-4 px-3 text-xs font-mono">
+            <td class="py-2.5 px-3 text-xs font-mono">
               <div class="text-slate-200">RSI: <span class="font-bold ${s.rsi_14 < 35 ? 'text-cyan-300' : (s.rsi_14 > 60 ? 'text-rose-300' : 'text-yellow-300')}">${s.rsi_14.toFixed(1)}</span></div>
               <div class="text-slate-200">IV Rank: <span class="font-bold ${s.iv_rank >= 35 ? 'text-emerald-300' : 'text-purple-300'}">${s.iv_rank.toFixed(1)}%</span></div>
               <div class="text-[11px] text-slate-400">${s.regime_note}</div>
             </td>
-            <td class="py-4 px-3">
+            <td class="py-2.5 px-3">
               <div class="mb-1">${stratBadge}</div>
               <div class="text-xs text-yellow-300 font-sans font-bold">${s.bias}</div>
             </td>
             <td class="py-4 px-3 text-xs font-mono text-cyan-300 font-bold whitespace-nowrap">
               📅 ${expFormatted}
             </td>
-            <td class="py-4 px-3 text-xs font-mono">
+            <td class="py-2.5 px-3 text-xs font-mono">
               <div class="text-white font-black text-sm">${s.trade_action}</div>
               <div class="text-slate-300 mt-0.5">$${s.width.toFixed(2)} strike width</div>
               <div class="text-[11px] text-slate-400 truncate max-w-xs">${s.short_contract} / ${s.long_contract}</div>
             </td>
-            <td class="py-4 px-3 font-mono font-black text-base ${netPriceColor}">
+            <td class="py-2.5 px-3 font-mono font-black text-sm ${netPriceColor}">
               ${s.price_desc}
             </td>
-            <td class="py-4 px-3 font-mono text-xs">
+            <td class="py-2.5 px-3 font-mono text-xs">
               <div class="text-emerald-300 font-bold">Max Profit: +$${s.max_profit.toFixed(0)}</div>
               <div class="text-rose-400 font-bold">Max Risk: -$${s.max_risk.toFixed(0)}</div>
             </td>
-            <td class="py-4 px-3 font-mono">
+            <td class="py-2.5 px-3 font-mono">
               <div class="text-yellow-300 font-black text-base">${s.roc.toFixed(1)}% <span class="text-xs text-slate-400">(${s.annualized_roc.toFixed(0)}% ann)</span></div>
               <div class="text-emerald-400 text-xs font-bold">POP: ${s.pop.toFixed(1)}%</div>
             </td>
-            <td class="py-4 px-3 font-mono text-xs">
+            <td class="py-2.5 px-3 font-mono text-xs">
               <div class="text-white font-bold">B/E: $${s.breakeven.toFixed(2)}</div>
               <div class="text-emerald-300 text-[11px]">${s.buffer_pct.toFixed(1)}% ${bufferLabel}</div>
             </td>
-            <td class="py-4 px-3 text-right">
+            <td class="py-2.5 px-3 text-right">
               <div class="mb-1">${badge}</div>
               <div class="text-xs text-slate-200 font-sans font-bold max-w-xs text-right mb-1">${s.directive}</div>
               <button onclick='openTradeModal({ symbol: "${s.symbol}", strategy_type: "${s.spread_type.toUpperCase().replace(/\s+/g, "_")}", structure: "${s.trade_action}", expiration: "${s.expiration || s.short_contract}", target_dte: ${s.target_dte}, price: ${s.net_price}, collateral: ${s.max_risk}, max_profit: ${s.max_profit}, max_risk: ${s.max_risk}, legs: [{ option_type: "${s.is_credit ? "PUT" : "CALL"}", strike: ${s.short_strike}, dte: ${s.target_dte}, action: "SELL" }, { option_type: "${s.is_credit ? "PUT" : "CALL"}", strike: ${s.long_strike}, dte: ${s.target_dte}, action: "BUY" }] })' class="px-3 py-1 bg-indigo-500 hover:bg-indigo-400 text-white font-black text-xs rounded-lg shadow transition whitespace-nowrap">
@@ -1792,7 +1790,7 @@
               ? '<span class="px-3 py-1.5 rounded-xl bg-emerald-500 text-black font-black text-xs border border-white">QUALIFIED TRIGGER</span>'
               : `<span class="px-3 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">${w.status || ('WATCH (IVR ' + w.iv_rank.toFixed(0) + '%)')}</span>`;
             tr.innerHTML = `
-              <td class="py-4 px-3">
+              <td class="py-2.5 px-3">
   <div class="text-xl font-black text-white">${w.symbol}</div>
   ${w.earnings_warning ? `<div class="mt-1"><span class="inline-block px-1.5 py-0.5 rounded bg-amber-950/90 border border-amber-500 text-amber-300 text-[10px] font-black">${w.earnings_warning}</span></div>` : ''}
 </td>
@@ -1809,7 +1807,7 @@
               <td class="py-4 px-3 text-white font-mono">$${w.bid.toFixed(2)} / $${w.ask.toFixed(2)} ($${w.mid.toFixed(2)} mid)</td>
               <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$${w.profit_target_50.toFixed(2)}</td>
               <td class="py-4 px-3 text-cyan-300 font-mono text-lg">${w.annualized_roc.toFixed(1)}%</td>
-              <td class="py-4 px-3 text-right">
+              <td class="py-2.5 px-3 text-right">
   <div>${badge}</div>
   <button onclick='openTradeModal({ symbol: "${w.symbol}", strategy_type: "CASH_SECURED_PUT", structure: "$${w.snapped_strike} Put", expiration: "${w.expiration || w.live_contract}", target_dte: ${w.target_dte}, price: ${w.mid}, collateral: ${w.required_collateral}, legs: [{ option_type: "PUT", strike: ${w.snapped_strike}, dte: ${w.target_dte}, action: "SELL" }] })' class="mt-1.5 px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-lg shadow transition whitespace-nowrap">
     ⚡ Paper Trade
