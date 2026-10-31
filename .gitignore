@@ -17,3 +17,7 @@ venv/
 *.csv
 Fidelity/
 positions.csv
+*.db
+*.bak
+market_cache.db*
+paper_trading.db*

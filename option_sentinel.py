@@ -35,6 +35,8 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from live_market_data import LiveMarketClient, LiveOptionContract, LiveTickerSnapshot, TICKER_SYMBOL_MAP
+from paper_trading_engine import PaperTradingEngine, PaperAccountSummary
+from schwab_trader import SchwabTraderClient, format_schwab_occ_symbol
 
 
 def parse_occ_expiration(contract_symbol: str) -> Optional[str]:
@@ -1617,6 +1619,8 @@ class AutoSyncManager:
 class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
     scanner: StrategyScanner
     sentinel: GammaDangerSentinel
+    paper_engine: PaperTradingEngine
+    schwab_trader: SchwabTraderClient
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -1652,6 +1656,23 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "status": "error",
                     "message": "Set SCHWAB_APP_KEY and SCHWAB_APP_SECRET in your local .env file first.",
                 })
+        elif path == "/api/paper/summary":
+            self._send_json_response({
+                "summary": asdict(self.paper_engine.get_account_summary()),
+                "positions": self.paper_engine.get_open_positions(),
+                "orders": self.paper_engine.get_order_history(30),
+            })
+        elif path == "/api/schwab/trader/status":
+            token_valid = bool(self.schwab_trader.get_valid_access_token())
+            accts = self.schwab_trader.get_account_numbers() if token_valid else []
+            self._send_json_response({
+                "token_valid": token_valid,
+                "accounts": accts,
+                "trading_ready": len(accts) > 0,
+                "message": "Connected to Schwab Trader API." if accts else ("Schwab Market Data Active. Authorize 'Accounts and Trading' in Schwab Developer Portal to trade live." if token_valid else "Schwab OAuth not configured."),
+            })
+        elif path == "/api/schwab/trader/accounts":
+            self._send_json_response(self.schwab_trader.get_account_numbers())
         elif path in ["/", "/index.html"]:
             self._serve_ui_dashboard()
         else:
@@ -1709,6 +1730,54 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
                 })
             except Exception as e:
                 self._send_json_response({"status": "error", "message": str(e)})
+        elif path == "/api/paper/order":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+            success, msg, pos_id = self.paper_engine.execute_paper_order(body)
+            self._send_json_response({
+                "status": "success" if success else "error",
+                "message": msg,
+                "position_id": pos_id,
+                "summary": asdict(self.paper_engine.get_account_summary()),
+                "positions": self.paper_engine.get_open_positions(),
+            })
+        elif path == "/api/paper/close":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+            pos_id = body.get("position_id")
+            exit_p = body.get("exit_price")
+            success, msg = self.paper_engine.close_paper_position(pos_id, exit_p)
+            self._send_json_response({
+                "status": "success" if success else "error",
+                "message": msg,
+                "summary": asdict(self.paper_engine.get_account_summary()),
+                "positions": self.paper_engine.get_open_positions(),
+            })
+        elif path == "/api/paper/reset":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+            bal = float(body.get("balance", 100000.0))
+            self.paper_engine.reset_account(bal)
+            self._send_json_response({
+                "status": "success",
+                "message": f"Paper account reset to ${bal:,.2f}.",
+                "summary": asdict(self.paper_engine.get_account_summary()),
+            })
+        elif path == "/api/schwab/trader/preview":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+            acct_hash = body.get("account_hash", "")
+            order_payload = body.get("order_payload", {})
+            res = self.schwab_trader.preview_order(acct_hash, order_payload)
+            self._send_json_response(res)
+        elif path == "/api/schwab/trader/place":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+            acct_hash = body.get("account_hash", "")
+            order_payload = body.get("order_payload", {})
+            live_confirm = bool(body.get("live_confirm", False))
+            res = self.schwab_trader.place_order(acct_hash, order_payload, live_confirm=live_confirm)
+            self._send_json_response(res)
         elif path == "/api/schwab/reauth":
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
@@ -1811,8 +1880,19 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
         manual_positions = self.sentinel.evaluate_all_manual_positions()
         equity_exposure = self.sentinel.evaluate_equity_and_exposure(manual_positions)
         portfolio_beta = self.sentinel.get_portfolio_beta_summary(equity_exposure)
+        paper_sum = asdict(self.paper_engine.get_account_summary())
+        paper_pos = self.paper_engine.get_open_positions()
+        token_valid = bool(self.schwab_trader.get_valid_access_token())
+        schwab_trader_status = {
+            "token_valid": token_valid,
+            "account_count": len(self.schwab_trader.get_account_numbers()) if token_valid else 0,
+        }
+
         summary = {
             "portfolio_beta_summary": portfolio_beta,
+            "paper_trading_summary": paper_sum,
+            "paper_positions": paper_pos,
+            "schwab_trader_status": schwab_trader_status,
             "timestamp": datetime.datetime.now().isoformat(),
             "feed_mode": "100% LIVE EXCHANGE FEED (ZERO SIMULATION)",
             "active_provider": self.scanner.market_client.active_provider,
@@ -1925,8 +2005,13 @@ def main():
         return
 
     if args.server:
+        paper_engine = PaperTradingEngine()
+        schwab_trader = SchwabTraderClient()
+
         SentinelRequestHandler.scanner = scanner
         SentinelRequestHandler.sentinel = sentinel
+        SentinelRequestHandler.paper_engine = paper_engine
+        SentinelRequestHandler.schwab_trader = schwab_trader
 
         auto_syncer = AutoSyncManager(scanner, sentinel, interval_sec=120)
         auto_syncer.start()

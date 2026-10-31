@@ -216,6 +216,9 @@
       <button onclick="showTab('spreads')" id="tabBtn-spreads" class="px-5 py-3 rounded-xl bg-[#0e172a] text-indigo-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap">
         6. Vertical Spreads (Call / Put by Market Regime)
       </button>
+      <button onclick="showTab('paper-trading')" id="tabBtn-paper-trading" class="px-5 py-3 rounded-xl bg-[#0e172a] text-emerald-300 hover:text-white border-2 border-emerald-500/80 transition whitespace-nowrap shadow-lg">
+        7. 📈 Paper Trading ($100k) &amp; Schwab Trader
+      </button>
     </div>
 
     <!-- TAB 1: THE WHEEL CSP GUIDANCE (LARGE, HIGH CONTRAST) -->
@@ -684,6 +687,211 @@
       </div>
     </div>
 
+    <!-- TAB 7: PAPER TRADING & SCHWAB TRADER HUD -->
+    <div id="panel-paper-trading" class="hidden bg-[#0e172a] border-2 border-emerald-500 rounded-2xl p-6 shadow-2xl space-y-6">
+      
+      <!-- Top Title & Mode Banner -->
+      <div class="flex flex-wrap items-center justify-between gap-4 border-b-2 border-slate-700 pb-4">
+        <div>
+          <h2 class="text-xl md:text-2xl font-black text-white flex items-center space-x-3">
+            <span class="h-4 w-4 rounded-full bg-emerald-400 pulse-beacon"></span>
+            <span>Paper Trading &amp; Schwab Execution HUD</span>
+            <span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-black border border-white">
+              VIRTUAL $100K BROKER
+            </span>
+          </h2>
+          <p class="text-sm font-bold text-slate-300 mt-1">
+            Simulate real orders against 100% live exchange quotes with zero financial risk &bull; Pre-configured for Schwab Trader API routing.
+          </p>
+        </div>
+
+        <div class="flex items-center flex-wrap gap-3">
+          <div class="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-600">
+            <span class="text-xs font-bold text-slate-300">Active Mode:</span>
+            <span class="px-2.5 py-0.5 rounded-lg bg-emerald-500 text-black font-black text-xs">
+              🟢 PAPER SIMULATOR
+            </span>
+          </div>
+          <button onclick="resetPaperAccount()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-rose-300 hover:text-rose-200 text-xs font-black rounded-xl border border-rose-500/50 transition">
+            🔄 Reset Account ($100k)
+          </button>
+        </div>
+      </div>
+
+      <!-- Paper Account KPI Cards -->
+      <div id="paperSummaryCards" class="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
+          <div class="text-xs font-bold text-slate-400 uppercase">Cash Balance</div>
+          <div id="paperCash" class="text-base font-black text-cyan-300 font-mono">$100,000.00</div>
+          <div class="text-[11px] text-slate-400">Virtual Buying Cash</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
+          <div class="text-xs font-bold text-slate-400 uppercase">Locked Collateral</div>
+          <div id="paperCollateral" class="text-base font-black text-amber-300 font-mono">$0.00</div>
+          <div class="text-[11px] text-slate-400">Reserved for CSP / Spreads</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
+          <div class="text-xs font-bold text-slate-400 uppercase">Available Buying Power</div>
+          <div id="paperBuyingPower" class="text-base font-black text-emerald-300 font-mono">$100,000.00</div>
+          <div class="text-[11px] text-slate-400">Cash - Collateral</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
+          <div class="text-xs font-bold text-slate-400 uppercase">Net Liquidation Value</div>
+          <div id="paperNetLiq" class="text-base font-black text-white font-mono">$100,000.00</div>
+          <div class="text-[11px] text-slate-400">Cash + Open Positions</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
+          <div class="text-xs font-bold text-slate-400 uppercase">Total Paper P&amp;L</div>
+          <div id="paperTotalPnl" class="text-base font-black font-mono text-slate-200">+$0.00</div>
+          <div id="paperPnlSub" class="text-[11px] text-slate-400">$0.00 Realized / $0.00 Unr</div>
+        </div>
+      </div>
+
+      <!-- Schwab Trader API Status Card -->
+      <div class="bg-[#090d16] border-2 border-cyan-500/80 rounded-xl p-4 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center space-x-2">
+            <span class="text-cyan-300 text-lg">🔗</span>
+            <h3 class="text-base font-black text-white">Charles Schwab Trader API Integration Status</h3>
+          </div>
+          <span id="schwabTraderBadge" class="px-3 py-1 rounded-full text-xs font-black bg-cyan-950 border border-cyan-400 text-cyan-300">
+            Checking Trader API Scope...
+          </span>
+        </div>
+        <p id="schwabTraderNotice" class="text-xs md:text-sm text-slate-300 font-bold">
+          Your current Schwab OAuth token is configured for <strong>100% Real-Time Market Data</strong>. 
+          When you enable <strong>Accounts and Trading Production</strong> on your Schwab Developer App, Option Sentinel will automatically detect your linked brokerage accounts and allow live dry-run previews and order routing!
+        </p>
+      </div>
+
+      <!-- Open Paper Positions Table -->
+      <div class="space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-lg font-black text-yellow-300">📋 Open Paper Positions (Live Mark-to-Market)</h3>
+          <span class="text-xs text-slate-300 font-bold">Automatically updates on 120s exchange sync</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm md:text-base border-collapse font-bold">
+            <thead>
+              <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase text-xs md:text-sm">
+                <th class="py-2.5 px-3">Position ID</th>
+                <th class="py-2.5 px-3">Symbol</th>
+                <th class="py-2.5 px-3">Strategy</th>
+                <th class="py-2.5 px-3">Exp / DTE</th>
+                <th class="py-2.5 px-3">Qty</th>
+                <th class="py-2.5 px-3">Entry &rarr; Live Mark</th>
+                <th class="py-2.5 px-3">Unrealized P&amp;L</th>
+                <th class="py-2.5 px-3">Collateral</th>
+                <th class="py-2.5 px-3">Dynamic Status</th>
+                <th class="py-2.5 px-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="paperPositionsBody" class="divide-y border-slate-700 font-mono">
+              <tr><td colspan="10" class="py-6 text-center text-slate-400 font-bold font-sans">No open paper positions. Click "⚡ Paper Trade" on any Tab (Wheel, Spreads, Covered Calls) to open a simulated trade!</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Paper Order History Table -->
+      <div class="space-y-3 pt-3 border-t border-slate-700">
+        <h3 class="text-lg font-black text-cyan-300">📜 Paper Execution Log &amp; Order History</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs md:text-sm border-collapse font-mono">
+            <thead>
+              <tr class="border-b-2 border-slate-700 text-slate-400 uppercase">
+                <th class="py-2 px-3">Timestamp</th>
+                <th class="py-2 px-3">Order ID</th>
+                <th class="py-2 px-3">Symbol</th>
+                <th class="py-2 px-3">Strategy</th>
+                <th class="py-2 px-3">Action</th>
+                <th class="py-2 px-3">Qty</th>
+                <th class="py-2 px-3">Fill Price</th>
+                <th class="py-2 px-3">Total Amount</th>
+                <th class="py-2 px-3">Status</th>
+              </tr>
+            </thead>
+            <tbody id="paperOrdersBody" class="divide-y border-slate-800 text-slate-300">
+              <tr><td colspan="9" class="py-4 text-center text-slate-500 font-sans">No simulated orders executed yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- UNIVERSAL TRADE EXECUTION MODAL -->
+    <div id="tradeModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-[#0b1329] border-2 border-emerald-400 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5">
+        <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+          <div class="flex items-center space-x-2">
+            <span class="text-2xl">⚡</span>
+            <h3 id="tradeModalTitle" class="text-xl font-black text-white">Execute Paper Trade</h3>
+          </div>
+          <button onclick="closeTradeModal()" class="text-slate-400 hover:text-white font-black text-lg">&times;</button>
+        </div>
+
+        <div class="space-y-3 text-sm">
+          <div class="p-3 rounded-xl bg-slate-900 border border-slate-700 space-y-1.5 font-mono">
+            <div class="flex justify-between text-xs text-slate-400">
+              <span>Strategy:</span>
+              <span id="tradeModalStrat" class="text-emerald-300 font-bold uppercase">CASH-SECURED PUT</span>
+            </div>
+            <div class="flex justify-between text-base font-black text-white">
+              <span id="tradeModalSym">SOXL</span>
+              <span id="tradeModalStructure" class="text-yellow-300">$105 Put</span>
+            </div>
+            <div class="flex justify-between text-xs text-cyan-300">
+              <span>Expiration:</span>
+              <span id="tradeModalExp">2026-11-27 (28 DTE)</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 text-xs font-mono">
+            <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-700">
+              <span class="text-slate-400 block mb-1">Fill Price (Mid):</span>
+              <span id="tradeModalPrice" class="text-lg font-black text-emerald-300">$4.15</span>
+              <span class="text-[10px] text-slate-400 block mt-0.5">Real Live Exchange Quote</span>
+            </div>
+            <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-700">
+              <span class="text-slate-400 block mb-1">Required Collateral:</span>
+              <span id="tradeModalCollateral" class="text-lg font-black text-amber-300">$10,500.00</span>
+              <span class="text-[10px] text-slate-400 block mt-0.5">Reserved from Buying Power</span>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between bg-slate-900 px-3 py-2 rounded-lg border border-slate-700">
+            <label class="text-xs font-bold text-slate-300">Contracts Quantity:</label>
+            <div class="flex items-center space-x-2">
+              <button onclick="adjustTradeQty(-1)" class="w-7 h-7 bg-slate-800 hover:bg-slate-700 text-white font-black rounded">&minus;</button>
+              <span id="tradeModalQty" class="font-black font-mono text-base text-yellow-300 w-6 text-center">1</span>
+              <button onclick="adjustTradeQty(1)" class="w-7 h-7 bg-slate-800 hover:bg-slate-700 text-white font-black rounded">+</button>
+            </div>
+          </div>
+
+          <div class="p-3 rounded-lg bg-emerald-950/60 border border-emerald-500/50 text-xs text-emerald-200">
+            <div class="flex justify-between font-bold">
+              <span>Total Est. Net Premium:</span>
+              <span id="tradeModalTotalPrem" class="font-mono text-emerald-300 font-black">+$415.00</span>
+            </div>
+            <div class="flex justify-between mt-1 text-[11px] text-slate-300">
+              <span>50% Profit Target Exit:</span>
+              <span id="tradeModalExit50" class="font-mono text-cyan-300">$2.08</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end space-x-3 pt-3 border-t border-slate-700">
+          <button onclick="closeTradeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-xs rounded-xl">
+            Cancel
+          </button>
+          <button onclick="submitPaperTrade()" id="btnSubmitTrade" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm rounded-xl shadow-lg transition">
+            ⚡ Confirm Paper Trade
+          </button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -883,13 +1091,13 @@
     }
 
     function showTab(tabId) {
-      const tabs = ['wheel', 'leap', 'leveraged', 'telemetry', 'positions', 'spreads'];
+      const tabs = ['wheel', 'leap', 'leveraged', 'telemetry', 'positions', 'spreads', 'paper-trading'];
       tabs.forEach(t => {
         const panel = document.getElementById(`panel-${t}`);
         if (panel) panel.classList.add('hidden');
         const btn = document.getElementById(`tabBtn-${t}`);
         if (btn) {
-          btn.classList.remove('bg-emerald-500', 'bg-amber-400', 'text-black', 'border-white');
+          btn.classList.remove('bg-emerald-500', 'bg-amber-400', 'bg-indigo-500', 'bg-emerald-400', 'text-black', 'text-white', 'border-white');
           btn.classList.add('bg-[#0e172a]', 'text-slate-200', 'border-slate-600');
         }
       });
@@ -903,6 +1111,9 @@
           activeBtn.classList.add('bg-amber-400', 'text-black', 'border-white');
         } else if (tabId === 'spreads') {
           activeBtn.classList.add('bg-indigo-500', 'text-white', 'border-white');
+        } else if (tabId === 'paper-trading') {
+          activeBtn.classList.add('bg-emerald-400', 'text-black', 'border-white');
+          loadPaperTradingData();
         } else {
           activeBtn.classList.add('bg-emerald-500', 'text-black', 'border-white');
         }
@@ -1184,7 +1395,10 @@
             </td>
             <td class="py-4 px-3 text-right">
               <div class="mb-1">${badge}</div>
-              <div class="text-xs text-slate-200 font-sans font-bold max-w-xs text-right">${s.directive}</div>
+              <div class="text-xs text-slate-200 font-sans font-bold max-w-xs text-right mb-1">${s.directive}</div>
+              <button onclick='openTradeModal({ symbol: "${s.symbol}", strategy_type: "${s.spread_type.toUpperCase().replace(/\s+/g, "_")}", structure: "${s.trade_action}", expiration: "${s.expiration || s.short_contract}", target_dte: ${s.target_dte}, price: ${s.net_price}, collateral: ${s.max_risk}, max_profit: ${s.max_profit}, max_risk: ${s.max_risk}, legs: [{ option_type: "${s.is_credit ? "PUT" : "CALL"}", strike: ${s.short_strike}, dte: ${s.target_dte}, action: "SELL" }, { option_type: "${s.is_credit ? "PUT" : "CALL"}", strike: ${s.long_strike}, dte: ${s.target_dte}, action: "BUY" }] })' class="px-3 py-1 bg-indigo-500 hover:bg-indigo-400 text-white font-black text-xs rounded-lg shadow transition whitespace-nowrap">
+                ⚡ Paper Trade
+              </button>
             </td>
           </tr>
         `;
@@ -1595,7 +1809,12 @@
               <td class="py-4 px-3 text-white font-mono">$${w.bid.toFixed(2)} / $${w.ask.toFixed(2)} ($${w.mid.toFixed(2)} mid)</td>
               <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$${w.profit_target_50.toFixed(2)}</td>
               <td class="py-4 px-3 text-cyan-300 font-mono text-lg">${w.annualized_roc.toFixed(1)}%</td>
-              <td class="py-4 px-3 text-right">${badge}</td>
+              <td class="py-4 px-3 text-right">
+  <div>${badge}</div>
+  <button onclick='openTradeModal({ symbol: "${w.symbol}", strategy_type: "CASH_SECURED_PUT", structure: "$${w.snapped_strike} Put", expiration: "${w.expiration || w.live_contract}", target_dte: ${w.target_dte}, price: ${w.mid}, collateral: ${w.required_collateral}, legs: [{ option_type: "PUT", strike: ${w.snapped_strike}, dte: ${w.target_dte}, action: "SELL" }] })' class="mt-1.5 px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-lg shadow transition whitespace-nowrap">
+    ⚡ Paper Trade
+  </button>
+</td>
             `;
             wBody.appendChild(tr);
           });
@@ -1779,10 +1998,242 @@
       }
     }
 
+    let currentModalSpec = null;
+    let currentModalQty = 1;
+
+    function openTradeModal(spec) {
+      currentModalSpec = spec;
+      currentModalQty = 1;
+      document.getElementById('tradeModalStrat').innerText = spec.strategy_type || 'CASH-SECURED PUT';
+      document.getElementById('tradeModalSym').innerText = spec.symbol;
+      document.getElementById('tradeModalStructure').innerText = spec.structure;
+      document.getElementById('tradeModalExp').innerText = `${spec.expiration} (${spec.target_dte} DTE)`;
+      document.getElementById('tradeModalPrice').innerText = `$${spec.price.toFixed(2)}`;
+      document.getElementById('tradeModalCollateral').innerText = `$${spec.collateral.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      document.getElementById('tradeModalQty').innerText = '1';
+      updateTradeModalCalculations();
+      document.getElementById('tradeModal').classList.remove('hidden');
+    }
+
+    function closeTradeModal() {
+      document.getElementById('tradeModal').classList.add('hidden');
+    }
+
+    function adjustTradeQty(delta) {
+      currentModalQty = Math.max(1, Math.min(50, currentModalQty + delta));
+      document.getElementById('tradeModalQty').innerText = currentModalQty;
+      updateTradeModalCalculations();
+    }
+
+    function updateTradeModalCalculations() {
+      if (!currentModalSpec) return;
+      const isCredit = !currentModalSpec.strategy_type.includes('DEBIT');
+      const totalPrem = currentModalSpec.price * 100 * currentModalQty;
+      const totalCollat = currentModalSpec.collateral * currentModalQty;
+      document.getElementById('tradeModalTotalPrem').innerText = `${isCredit ? '+' : '-'}$${totalPrem.toFixed(2)}`;
+      document.getElementById('tradeModalCollateral').innerText = `$${totalCollat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const exit50 = isCredit ? (currentModalSpec.price * 0.5).toFixed(2) : (currentModalSpec.price * 1.5).toFixed(2);
+      document.getElementById('tradeModalExit50').innerText = `$${exit50}`;
+    }
+
+    async function submitPaperTrade() {
+      if (!currentModalSpec) return;
+      const btn = document.getElementById('btnSubmitTrade');
+      btn.innerText = 'Submitting...';
+      try {
+        const payload = {
+          symbol: currentModalSpec.symbol,
+          strategy_type: currentModalSpec.strategy_type,
+          contracts: currentModalQty,
+          fill_price: currentModalSpec.price,
+          collateral_required: currentModalSpec.collateral * currentModalQty,
+          max_profit: (currentModalSpec.max_profit || (currentModalSpec.price * 100)) * currentModalQty,
+          max_risk: (currentModalSpec.max_risk || currentModalSpec.collateral) * currentModalQty,
+          expiration: currentModalSpec.expiration,
+          target_dte: currentModalSpec.target_dte,
+          legs: currentModalSpec.legs || [],
+          notes: currentModalSpec.structure,
+        };
+        const res = await fetch('/api/paper/order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          playAlertTone('success');
+          closeTradeModal();
+          renderPaperTradingSection(data);
+          showTab('paper-trading');
+        } else {
+          alert('Paper Order Notice: ' + data.message);
+        }
+      } catch (e) {
+        alert('Paper trade error: ' + e);
+      } finally {
+        btn.innerText = '⚡ Confirm Paper Trade';
+      }
+    }
+
+    async function loadPaperTradingData() {
+      try {
+        const res = await fetch('/api/paper/summary');
+        if (res.ok) {
+          const data = await res.json();
+          renderPaperTradingSection(data);
+        }
+        checkSchwabTraderStatus();
+      } catch (e) {
+        console.warn('Error loading paper trading data:', e);
+      }
+    }
+
+    async function checkSchwabTraderStatus() {
+      const badge = document.getElementById('schwabTraderBadge');
+      const notice = document.getElementById('schwabTraderNotice');
+      if (!badge || !notice) return;
+      try {
+        const res = await fetch('/api/schwab/trader/status');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.trading_ready) {
+            badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-black border border-white';
+            badge.innerText = `🟢 Schwab Trader Ready (${data.accounts.length} Accts Linked)`;
+            notice.innerHTML = `Connected to Charles Schwab Trader API with active trading scope. Linked Accounts: <code class="text-cyan-300 font-bold">${data.accounts.map(a => a.accountNumber).join(', ')}</code>.`;
+          } else if (data.token_valid) {
+            badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-purple-900 border border-purple-400 text-purple-300';
+            badge.innerText = '📡 Market Data Only (Trading Inactive)';
+            notice.innerHTML = `Schwab Market Data is active. To enable live trading, add the <strong>"Accounts and Trading Production"</strong> product to your app in developer.schwab.com. You can paper trade safely below right now!`;
+          }
+        }
+      } catch (e) {}
+    }
+
+    function renderPaperTradingSection(data) {
+      if (!data) return;
+      const s = data.summary || {};
+      if (document.getElementById('paperCash')) document.getElementById('paperCash').innerText = `$${(s.cash_balance || 100000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      if (document.getElementById('paperCollateral')) document.getElementById('paperCollateral').innerText = `$${(s.locked_collateral || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      if (document.getElementById('paperBuyingPower')) document.getElementById('paperBuyingPower').innerText = `$${(s.available_buying_power || 100000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      if (document.getElementById('paperNetLiq')) document.getElementById('paperNetLiq').innerText = `$${(s.net_liquidation_value || 100000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+      const totPnl = s.total_pnl || 0.0;
+      const pnlEl = document.getElementById('paperTotalPnl');
+      if (pnlEl) {
+        pnlEl.innerText = `${totPnl >= 0 ? '+' : ''}$${totPnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        pnlEl.className = `text-base font-black font-mono ${totPnl >= 0 ? 'text-emerald-300' : 'text-rose-400'}`;
+      }
+      if (document.getElementById('paperPnlSub')) {
+        document.getElementById('paperPnlSub').innerText = `$${(s.realized_pnl || 0).toFixed(2)} Realized / $${(s.unrealized_pnl || 0).toFixed(2)} Unr`;
+      }
+
+      // Positions table
+      const posBody = document.getElementById('paperPositionsBody');
+      const positions = data.positions || [];
+      if (posBody) {
+        if (positions.length === 0) {
+          posBody.innerHTML = `<tr><td colspan="10" class="py-6 text-center text-slate-400 font-bold font-sans">No open paper positions. Click "⚡ Paper Trade" on any Tab (Wheel, Spreads, Covered Calls) to open a simulated trade!</td></tr>`;
+        } else {
+          posBody.innerHTML = positions.map(p => {
+            const isCredit = !p.strategy_type.includes('DEBIT');
+            const pnlColor = p.unrealized_pnl >= 0 ? 'text-emerald-300' : 'text-rose-400';
+            const badgeCls = p.profit_target_hit
+              ? 'bg-emerald-500 text-black'
+              : (p.gamma_danger ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-200');
+            const expFormatted = formatExpDate(p.expiration, p.dte);
+
+            return `
+              <tr class="hover:bg-slate-800/40 border-b border-slate-700 text-xs md:text-sm">
+                <td class="py-3 px-3 text-cyan-300 font-bold">${p.position_id}</td>
+                <td class="py-3 px-3 text-white font-black text-base">${p.symbol}</td>
+                <td class="py-3 px-3">
+                  <div class="text-white font-bold">${p.strategy_type}</div>
+                  <div class="text-[11px] text-slate-400 font-sans">${p.notes || ''}</div>
+                </td>
+                <td class="py-3 px-3 text-cyan-300 font-mono">${expFormatted}</td>
+                <td class="py-3 px-3 text-yellow-300">${p.contracts}</td>
+                <td class="py-3 px-3 text-slate-200 font-mono">$${p.entry_price.toFixed(2)} &rarr; <span class="text-white font-black">$${p.current_mark.toFixed(2)}</span></td>
+                <td class="py-3 px-3 font-mono font-black ${pnlColor}">
+                  ${p.unrealized_pnl >= 0 ? '+' : ''}$${p.unrealized_pnl.toFixed(2)} (${p.pnl_pct.toFixed(1)}%)
+                </td>
+                <td class="py-3 px-3 text-amber-300 font-mono">$${Math.round(p.collateral_required).toLocaleString()}</td>
+                <td class="py-3 px-3">
+                  <span class="px-2.5 py-1 rounded-lg text-xs font-black ${badgeCls}">${p.action_status}</span>
+                </td>
+                <td class="py-3 px-3 text-right">
+                  <button onclick="closePaperPosition('${p.position_id}', ${p.current_mark})" class="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-lg transition">
+                    Close Position
+                  </button>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+      }
+
+      // Orders table
+      const ordBody = document.getElementById('paperOrdersBody');
+      const orders = data.orders || [];
+      if (ordBody && orders.length > 0) {
+        ordBody.innerHTML = orders.map(o => `
+          <tr class="hover:bg-slate-800/30 border-b border-slate-800 text-xs">
+            <td class="py-2 px-3 text-slate-400">${o.timestamp}</td>
+            <td class="py-2 px-3 text-cyan-300 font-bold">${o.order_id}</td>
+            <td class="py-2 px-3 text-white font-black">${o.symbol}</td>
+            <td class="py-2 px-3 text-slate-300">${o.strategy_type}</td>
+            <td class="py-2 px-3 ${o.order_action.startsWith('S') ? 'text-emerald-300' : 'text-cyan-300'} font-bold">${o.order_action}</td>
+            <td class="py-2 px-3">${o.contracts}</td>
+            <td class="py-2 px-3 text-yellow-300">$${o.fill_price.toFixed(2)}</td>
+            <td class="py-2 px-3 font-black text-white">$${o.total_amount.toFixed(2)}</td>
+            <td class="py-2 px-3"><span class="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-500 text-emerald-300 text-[10px] font-bold">${o.status}</span></td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    async function closePaperPosition(posId, mark) {
+      if (!confirm(`Are you sure you want to close paper position ${posId} at live mark $${mark.toFixed(2)}?`)) return;
+      try {
+        const res = await fetch('/api/paper/close', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ position_id: posId, exit_price: mark }),
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          playAlertTone('success');
+          renderPaperTradingSection(data);
+        } else {
+          alert('Close error: ' + data.message);
+        }
+      } catch (e) {
+        alert('Error closing position: ' + e);
+      }
+    }
+
+    async function resetPaperAccount() {
+      if (!confirm('Are you sure you want to reset your paper trading account back to $100,000.00? This clears open paper positions and order history.')) return;
+      try {
+        const res = await fetch('/api/paper/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ balance: 100000.0 }),
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          playAlertTone('success');
+          loadPaperTradingData();
+        }
+      } catch (e) {
+        alert('Reset error: ' + e);
+      }
+    }
+
     // Initialize: Load positions, equity exposure, wheel & leap matrix in <10ms first, then sync full telemetry
     window.addEventListener('DOMContentLoaded', async () => {
       await manualSync();
       startTimer();
+      loadPaperTradingData();
     });
   </script>
 </body>
