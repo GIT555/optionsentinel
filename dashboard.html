@@ -757,9 +757,14 @@
           <span class="text-xs md:text-sm font-bold text-white">Charles Schwab Trader API:</span>
           <span id="schwabTraderNotice" class="text-xs text-slate-300">Market Data Active &bull; Enable 'Accounts and Trading' in Schwab Developer Portal to route live orders.</span>
         </div>
-        <span id="schwabTraderBadge" class="px-2.5 py-0.5 rounded-full text-xs font-black bg-cyan-950 border border-cyan-400 text-cyan-300">
-          Checking Scope...
-        </span>
+        <div class="flex items-center space-x-2">
+          <span id="schwabTraderBadge" class="px-2.5 py-0.5 rounded-full text-xs font-black bg-cyan-950 border border-cyan-400 text-cyan-300">
+            Checking Scope...
+          </span>
+          <button onclick="openSchwabAuthModal()" class="px-3 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-400 text-cyan-300 font-bold text-xs rounded-lg transition shadow">
+            🔐 Authorize Trading Token
+          </button>
+        </div>
       </div>
 
       <!-- Open Paper Positions Table --><!-- Open Paper Positions Table -->
@@ -820,15 +825,76 @@
 
     <!-- UNIVERSAL TRADE EXECUTION MODAL -->
     <div id="tradeModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div class="bg-[#0b1329] border-2 border-emerald-400 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5">
+      <div class="bg-[#0b1329] border-2 border-emerald-400 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+        
+        <!-- Header -->
         <div class="flex items-center justify-between border-b border-slate-700 pb-3">
           <div class="flex items-center space-x-2">
             <span class="text-2xl">⚡</span>
-            <h3 id="tradeModalTitle" class="text-xl font-black text-white">Execute Paper Trade</h3>
+            <h3 id="tradeModalTitle" class="text-xl font-black text-white">Execute Order</h3>
           </div>
-          <button onclick="closeTradeModal()" class="text-slate-400 hover:text-white font-black text-lg">&times;</button>
+          <button onclick="closeTradeModal()" class="text-slate-400 hover:text-white font-black text-xl">&times;</button>
         </div>
 
+        <!-- Mode Toggle / Destination Pills -->
+        <div class="bg-slate-900/90 p-3 rounded-xl border border-slate-700 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-300 uppercase tracking-wider">Order Routing / Execution:</span>
+            <span id="tradeModalModeBadge" class="text-[11px] font-black px-2 py-0.5 rounded bg-emerald-950 border border-emerald-500 text-emerald-300">
+              🟢 Virtual Paper Active
+            </span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" id="btnModePaper" onclick="setTradeDestination('PAPER')" class="flex items-center justify-center space-x-2 py-2 px-3 rounded-lg border-2 border-emerald-400 bg-emerald-950 text-emerald-300 font-black text-xs transition">
+              <span>🟢 Virtual Paper ($100k)</span>
+            </button>
+            <button type="button" id="btnModeSchwab" onclick="setTradeDestination('SCHWAB')" class="flex items-center justify-center space-x-2 py-2 px-3 rounded-lg border border-slate-600 bg-slate-800 text-slate-300 font-bold text-xs hover:border-cyan-400 transition">
+              <span>🔵 Charles Schwab API</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Mode Details Container -->
+        <div id="paperModeDetails" class="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/50 text-[11px] text-emerald-200">
+          🟢 <strong>Simulated Paper Execution:</strong> Order executes immediately at real-time exchange quotes against your virtual $100,000 balance. 100% risk-free.
+        </div>
+
+        <div id="schwabModeDetails" class="hidden p-3 rounded-lg bg-cyan-950/40 border border-cyan-500/50 text-xs text-cyan-200 space-y-2.5">
+          <!-- When Schwab Ready -->
+          <div id="schwabReadyBlock" class="space-y-2">
+            <div class="flex items-center justify-between">
+              <label for="schwabAccountSelect" class="text-xs font-bold text-white">Linked Schwab Brokerage Account:</label>
+              <span class="text-[10px] text-emerald-400 font-mono font-bold">● Trader API Connected</span>
+            </div>
+            <select id="schwabAccountSelect" class="w-full bg-slate-950 border border-cyan-400 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono font-bold focus:outline-none">
+              <option value="">Select Account...</option>
+            </select>
+            <div class="text-[11px] text-slate-300">
+              Orders will pass through Schwab's <strong class="text-cyan-300">/previewOrder</strong> risk engine first to calculate margin and buying power before live execution.
+            </div>
+          </div>
+
+          <!-- When Schwab Not Ready (Market Data Only) -->
+          <div id="schwabNotReadyBlock" class="space-y-2">
+            <div class="flex items-center space-x-2 text-amber-300 font-bold text-xs">
+              <span>⚠️</span>
+              <span>Schwab Account Trading Scope Not Active</span>
+            </div>
+            <p class="text-[11px] text-slate-300 leading-relaxed">
+              Your active token currently has <strong>Market Data</strong> permissions. To place live orders or preview real buying power on Charles Schwab:
+            </p>
+            <div class="text-[11px] text-slate-200 space-y-1 bg-black/60 p-2.5 rounded-lg border border-slate-700">
+              <div>1. In Schwab Dev Portal: enable <strong>"Accounts and Trading Production"</strong>.</div>
+              <div>2. Run auth command in terminal: <code class="text-yellow-300 font-bold">python option_sentinel.py --schwab-auth</code></div>
+              <div>3. Or authenticate directly in your browser:</div>
+            </div>
+            <button type="button" onclick="openSchwabAuthModal()" class="w-full py-1.5 bg-cyan-950 hover:bg-cyan-900 border border-cyan-400 text-cyan-300 text-xs font-bold rounded-lg transition">
+              🔐 Open Schwab Authorization Window
+            </button>
+          </div>
+        </div>
+
+        <!-- Strategy Details -->
         <div class="space-y-3 text-sm">
           <div class="p-3 rounded-xl bg-slate-900 border border-slate-700 space-y-1.5 font-mono">
             <div class="flex justify-between text-xs text-slate-400">
@@ -879,18 +945,99 @@
           </div>
         </div>
 
+        <!-- Schwab Preview Output Box -->
+        <div id="schwabPreviewResultBox" class="hidden p-3 bg-black/90 border border-cyan-500 rounded-xl space-y-1 font-mono text-xs max-h-40 overflow-y-auto">
+          <div class="flex items-center justify-between text-cyan-300 font-bold">
+            <span>Schwab /previewOrder Response:</span>
+            <span id="schwabPreviewStatus">SUCCESS</span>
+          </div>
+          <div id="schwabPreviewDetails" class="text-slate-300 text-[11px] whitespace-pre-wrap"></div>
+        </div>
+
+        <!-- Footer Buttons -->
         <div class="flex items-center justify-end space-x-3 pt-3 border-t border-slate-700">
           <button onclick="closeTradeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-xs rounded-xl">
             Cancel
           </button>
+          
+          <!-- Paper Trade Button -->
           <button onclick="submitPaperTrade()" id="btnSubmitTrade" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm rounded-xl shadow-lg transition">
             ⚡ Confirm Paper Trade
+          </button>
+
+          <!-- Schwab Preview Button -->
+          <button onclick="submitSchwabOrder(true)" id="btnPreviewSchwab" class="hidden px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs rounded-xl shadow transition">
+            🔍 Dry-Run Preview Order
+          </button>
+
+          <!-- Schwab Live Execute Button -->
+          <button onclick="submitSchwabOrder(false)" id="btnExecuteSchwab" class="hidden px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow transition">
+            🚨 Place Live Order
+          </button>
+
+          <!-- Schwab Auth Button if Not Ready -->
+          <button onclick="openSchwabAuthModal()" id="btnAuthSchwab" class="hidden px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-black text-xs rounded-xl shadow transition">
+            🔐 Authorize Schwab Trading
           </button>
         </div>
       </div>
     </div>
 
-  </div>
+    <!-- SCHWAB IN-BROWSER AUTHORIZATION MODAL -->
+    <div id="schwabAuthModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-[#0b1329] border-2 border-cyan-400 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+          <div class="flex items-center space-x-2">
+            <span class="text-2xl">🔐</span>
+            <h3 class="text-xl font-black text-white">Authorize Charles Schwab Trading Token</h3>
+          </div>
+          <button onclick="closeSchwabAuthModal()" class="text-slate-400 hover:text-white font-black text-xl">&times;</button>
+        </div>
+
+        <div class="space-y-3 text-xs text-slate-200">
+          <div class="bg-cyan-950/40 border border-cyan-500/50 p-3 rounded-xl space-y-2">
+            <div class="font-bold text-white text-sm">Step 1: Ensure API Products Are Enabled</div>
+            <p class="text-slate-300">
+              Log into <a href="https://developer.schwab.com" target="_blank" class="text-cyan-300 underline font-black">developer.schwab.com</a>, open your App Dashboard, and confirm both <strong>"Market Data Production"</strong> and <strong>"Accounts and Trading Production"</strong> are enabled.
+            </p>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-700 p-3 rounded-xl space-y-2">
+            <div class="font-bold text-white text-sm">Step 2: Log In & Authorize Accounts</div>
+            <p class="text-slate-300">
+              Click the button below to open Schwab's official login page in a new window. Check the boxes for the brokerage accounts you wish to trade with.
+            </p>
+            <a href="/api/schwab/login" target="_blank" class="inline-flex items-center space-x-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs rounded-lg transition shadow">
+              <span>🚀 Open Schwab Login Window</span>
+            </a>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-700 p-3 rounded-xl space-y-2">
+            <div class="font-bold text-white text-sm">Step 3: Paste the Callback URL Below</div>
+            <p class="text-slate-300">
+              After logging in, Schwab will redirect you to a URL (e.g. <code class="text-yellow-300">https://127.0.0.1/?code=...</code>). Copy that entire address from your browser's address bar and paste it below:
+            </p>
+            <input type="text" id="schwabRedirectUrlInput" placeholder="https://127.0.0.1/?code=C0.xxxxxx..." class="w-full bg-slate-950 border border-slate-600 rounded-lg p-2.5 text-xs text-white font-mono focus:border-cyan-400 focus:outline-none" />
+            <div id="schwabAuthStatusMsg" class="hidden p-2 rounded text-xs font-mono"></div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-3 border-t border-slate-700">
+          <div class="text-[11px] text-slate-400">
+            Or via CLI: <code class="text-cyan-300 font-bold">python option_sentinel.py --schwab-auth</code>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="closeSchwabAuthModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-xs rounded-xl">
+              Cancel
+            </button>
+            <button onclick="submitSchwabReauth()" id="btnSubmitSchwabAuth" class="px-5 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-black font-black text-xs rounded-xl shadow-lg transition">
+              💾 Save Trading Token
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+</div>
 
   <script>
     let isLargeFont = false;
@@ -1929,7 +2076,19 @@
                 <div class="text-xs text-yellow-300 font-mono">📅 ${formatExpDate(lc.pmcc_expiration || lc.pmcc_contract, lc.pmcc_target_dte)}</div>
               </td>
               <td class="py-3 px-3 ${gapColor} text-xs font-sans font-black">${lc.pmcc_gap_safety}</td>
-              <td class="py-3 px-3 text-right font-sans">${badge}</td>
+              <td class="py-3 px-3 text-right font-sans">
+                <div>${badge}</div>
+                <div class="mt-2 flex items-center justify-end space-x-1.5 flex-wrap gap-1">
+                  <button onclick='openTradeModal({ symbol: "${lc.symbol}", strategy_type: "LEAP_CALL_BUY", structure: "$${lc.leap_strike.toFixed(1)} LEAP Call", expiration: "${lc.leap_expiration || lc.leap_contract}", target_dte: ${lc.leap_target_dte || 365}, price: ${lc.leap_mid}, collateral: ${lc.leap_mid * 100}, max_profit: 99999, max_risk: ${lc.leap_mid * 100}, legs: [{ option_type: "CALL", strike: ${lc.leap_strike}, dte: ${lc.leap_target_dte || 365}, action: "BUY" }] })' class="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-black text-xs rounded-lg shadow transition whitespace-nowrap">
+                    ⚡ Trade LEAP Call
+                  </button>
+                  ${lc.pmcc_strike ? `
+                  <button onclick='openTradeModal({ symbol: "${lc.symbol}", strategy_type: "PMCC_DIAGONAL", structure: "Buy $${lc.leap_strike.toFixed(1)}C / Sell $${lc.pmcc_strike.toFixed(1)}C", expiration: "${lc.leap_expiration || lc.leap_contract}", target_dte: ${lc.leap_target_dte || 365}, price: ${Math.max(0.1, lc.leap_mid - lc.pmcc_mid)}, collateral: ${Math.max(10, (lc.leap_mid - lc.pmcc_mid) * 100)}, max_profit: ${(lc.pmcc_strike - lc.leap_strike) * 100}, max_risk: ${(lc.leap_mid - lc.pmcc_mid) * 100}, legs: [{ option_type: "CALL", strike: ${lc.leap_strike}, dte: ${lc.leap_target_dte || 365}, action: "BUY" }, { option_type: "CALL", strike: ${lc.pmcc_strike}, dte: ${lc.pmcc_target_dte || 45}, action: "SELL" }] })' class="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs rounded-lg shadow transition whitespace-nowrap">
+                    ⚡ Trade PMCC
+                  </button>
+                  ` : ''}
+                </div>
+              </td>
             `;
             lcBody.appendChild(tr);
           });
@@ -1962,7 +2121,14 @@
                 <div>${lp.pmcp_contract} ($${lp.pmcp_strike.toFixed(1)} @ $${lp.pmcp_mid.toFixed(2)})</div>
                 <div class="text-xs text-yellow-300 font-mono">📅 ${formatExpDate(lp.pmcp_expiration || lp.pmcp_contract, lp.pmcp_dte)}</div>
               </td>
-              <td class="py-3 px-3 text-right font-sans">${badge}</td>
+              <td class="py-3 px-3 text-right font-sans">
+                <div>${badge}</div>
+                <div class="mt-2 flex items-center justify-end">
+                  <button onclick='openTradeModal({ symbol: "${lp.symbol}", strategy_type: "LEAP_PUT_BUY", structure: "$${lp.leap_strike.toFixed(1)} LEAP Put", expiration: "${lp.leap_expiration || lp.leap_contract}", target_dte: ${lp.leap_target_dte || 365}, price: ${lp.leap_mid}, collateral: ${lp.leap_mid * 100}, max_profit: ${lp.leap_strike * 100}, max_risk: ${lp.leap_mid * 100}, legs: [{ option_type: "PUT", strike: ${lp.leap_strike}, dte: ${lp.leap_target_dte || 365}, action: "BUY" }] })' class="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-lg shadow transition whitespace-nowrap">
+                    ⚡ Trade LEAP Put
+                  </button>
+                </div>
+              </td>
             `;
             lpBody.appendChild(tr);
           });
@@ -1990,6 +2156,11 @@
             <td class="py-4 px-3 text-cyan-300 font-mono text-sm">${row.live_contract}</td>
             <td class="py-4 px-3 text-emerald-300 font-mono text-lg">$${row.live_mid.toFixed(2)}</td>
             <td class="py-4 px-3 text-cyan-300 font-mono text-lg">${row.annualized_roc_est.toFixed(1)}%</td>
+            <td class="py-4 px-3 text-right">
+              <button onclick='openTradeModal({ symbol: "${row.symbol}", strategy_type: "CASH_SECURED_PUT", structure: "$${row.safe_csp_strike.toFixed(1)} Put", expiration: "${row.expiration || row.live_contract}", target_dte: ${row.target_dte}, price: ${row.live_mid}, collateral: ${row.safe_csp_strike * 100}, max_profit: ${row.live_mid * 100}, max_risk: ${row.safe_csp_strike * 100}, legs: [{ option_type: "PUT", strike: ${row.safe_csp_strike}, dte: ${row.target_dte}, action: "SELL" }] })' class="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-lg shadow transition whitespace-nowrap">
+                ⚡ Paper Trade
+              </button>
+            </td>
           `;
           tbody.appendChild(tr);
         });
@@ -2010,6 +2181,7 @@
       document.getElementById('tradeModalCollateral').innerText = `$${spec.collateral.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       document.getElementById('tradeModalQty').innerText = '1';
       updateTradeModalCalculations();
+      setTradeDestination('PAPER');
       document.getElementById('tradeModal').classList.remove('hidden');
     }
 
@@ -2086,22 +2258,225 @@
       }
     }
 
+
+    let currentTradeDestination = 'PAPER'; // 'PAPER' or 'SCHWAB'
+    let schwabTraderInfo = { trading_ready: false, accounts: [], token_valid: false };
+
+    function setTradeDestination(dest) {
+      currentTradeDestination = dest;
+      const btnPaper = document.getElementById('btnModePaper');
+      const btnSchwab = document.getElementById('btnModeSchwab');
+      const badge = document.getElementById('tradeModalModeBadge');
+      const paperDetails = document.getElementById('paperModeDetails');
+      const schwabDetails = document.getElementById('schwabModeDetails');
+      const btnSubmitTrade = document.getElementById('btnSubmitTrade');
+      const btnPreviewSchwab = document.getElementById('btnPreviewSchwab');
+      const btnExecuteSchwab = document.getElementById('btnExecuteSchwab');
+      const btnAuthSchwab = document.getElementById('btnAuthSchwab');
+      const previewBox = document.getElementById('schwabPreviewResultBox');
+
+      if (previewBox) previewBox.classList.add('hidden');
+
+      if (dest === 'PAPER') {
+        if (btnPaper) {
+          btnPaper.className = 'flex items-center justify-center space-x-2 py-2 px-3 rounded-lg border-2 border-emerald-400 bg-emerald-950 text-emerald-300 font-black text-xs transition';
+        }
+        if (btnSchwab) {
+          btnSchwab.className = 'flex items-center justify-center space-x-2 py-2 px-3 rounded-lg border border-slate-600 bg-slate-800 text-slate-300 font-bold text-xs hover:border-cyan-400 transition';
+        }
+        if (badge) {
+          badge.className = 'text-[11px] font-black px-2 py-0.5 rounded bg-emerald-950 border border-emerald-500 text-emerald-300';
+          badge.innerText = '🟢 Virtual Paper Active';
+        }
+        if (paperDetails) paperDetails.classList.remove('hidden');
+        if (schwabDetails) schwabDetails.classList.add('hidden');
+
+        if (btnSubmitTrade) btnSubmitTrade.classList.remove('hidden');
+        if (btnPreviewSchwab) btnPreviewSchwab.classList.add('hidden');
+        if (btnExecuteSchwab) btnExecuteSchwab.classList.add('hidden');
+        if (btnAuthSchwab) btnAuthSchwab.classList.add('hidden');
+      } else {
+        // Schwab Destination
+        if (btnPaper) {
+          btnPaper.className = 'flex items-center justify-center space-x-2 py-2 px-3 rounded-lg border border-slate-600 bg-slate-800 text-slate-300 font-bold text-xs hover:border-emerald-400 transition';
+        }
+        if (btnSchwab) {
+          btnSchwab.className = 'flex items-center justify-center space-x-2 py-2 px-3 rounded-lg border-2 border-cyan-400 bg-cyan-950 text-cyan-300 font-black text-xs transition';
+        }
+        if (badge) {
+          badge.className = 'text-[11px] font-black px-2 py-0.5 rounded bg-cyan-950 border border-cyan-400 text-cyan-300';
+          badge.innerText = '🔵 Charles Schwab Active';
+        }
+        if (paperDetails) paperDetails.classList.add('hidden');
+        if (schwabDetails) schwabDetails.classList.remove('hidden');
+
+        if (btnSubmitTrade) btnSubmitTrade.classList.add('hidden');
+
+        const readyBlock = document.getElementById('schwabReadyBlock');
+        const notReadyBlock = document.getElementById('schwabNotReadyBlock');
+
+        if (schwabTraderInfo.trading_ready && schwabTraderInfo.accounts.length > 0) {
+          if (readyBlock) readyBlock.classList.remove('hidden');
+          if (notReadyBlock) notReadyBlock.classList.add('hidden');
+          if (btnPreviewSchwab) btnPreviewSchwab.classList.remove('hidden');
+          if (btnExecuteSchwab) btnExecuteSchwab.classList.remove('hidden');
+          if (btnAuthSchwab) btnAuthSchwab.classList.add('hidden');
+        } else {
+          if (readyBlock) readyBlock.classList.add('hidden');
+          if (notReadyBlock) notReadyBlock.classList.remove('hidden');
+          if (btnPreviewSchwab) btnPreviewSchwab.classList.add('hidden');
+          if (btnExecuteSchwab) btnExecuteSchwab.classList.add('hidden');
+          if (btnAuthSchwab) btnAuthSchwab.classList.remove('hidden');
+        }
+      }
+    }
+
+    function openSchwabAuthModal() {
+      const modal = document.getElementById('schwabAuthModal');
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeSchwabAuthModal() {
+      const modal = document.getElementById('schwabAuthModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    async function submitSchwabReauth() {
+      const input = document.getElementById('schwabRedirectUrlInput');
+      const url = input ? input.value.trim() : '';
+      const statusMsg = document.getElementById('schwabAuthStatusMsg');
+      const btn = document.getElementById('btnSubmitSchwabAuth');
+
+      if (!url) {
+        alert('Please paste the complete redirect URL (starting with https://127.0.0.1/?code=...)');
+        return;
+      }
+
+      btn.innerText = 'Exchanging Code...';
+      if (statusMsg) {
+        statusMsg.classList.remove('hidden');
+        statusMsg.className = 'p-2 rounded bg-cyan-950 border border-cyan-500 text-cyan-300 font-mono text-xs';
+        statusMsg.innerText = 'Communicating with Schwab OAuth servers...';
+      }
+
+      try {
+        const res = await fetch('/api/schwab/reauth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ redirect_url: url })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          statusMsg.className = 'p-2 rounded bg-emerald-950 border border-emerald-500 text-emerald-300 font-mono text-xs';
+          statusMsg.innerText = 'Token Exchanged & Verified Successfully! Refreshing accounts...';
+          playAlertTone('success');
+          setTimeout(async () => {
+            closeSchwabAuthModal();
+            await checkSchwabTraderStatus();
+            if (currentTradeDestination === 'SCHWAB') {
+              setTradeDestination('SCHWAB');
+            }
+          }, 1500);
+        } else {
+          statusMsg.className = 'p-2 rounded bg-rose-950 border border-rose-500 text-rose-300 font-mono text-xs';
+          statusMsg.innerText = 'Exchange Error: ' + (data.message || 'Invalid or expired code.');
+        }
+      } catch (e) {
+        if (statusMsg) {
+          statusMsg.className = 'p-2 rounded bg-rose-950 border border-rose-500 text-rose-300 font-mono text-xs';
+          statusMsg.innerText = 'Network error: ' + e;
+        }
+      } finally {
+        btn.innerText = '💾 Save Trading Token';
+      }
+    }
+
+    async function submitSchwabOrder(isPreview) {
+      if (!currentModalSpec) return;
+      const acctSelect = document.getElementById('schwabAccountSelect');
+      const acctHash = acctSelect ? acctSelect.value : '';
+      if (!acctHash) {
+        alert('Please select a Schwab brokerage account from the dropdown.');
+        return;
+      }
+
+      const endpoint = isPreview ? '/api/schwab/trader/preview' : '/api/schwab/trader/place';
+      const btn = isPreview ? document.getElementById('btnPreviewSchwab') : document.getElementById('btnExecuteSchwab');
+      if (btn) btn.innerText = isPreview ? 'Validating...' : 'Placing Order...';
+
+      try {
+        const payload = {
+          account_hash: acctHash,
+          live_confirm: !isPreview,
+          order_payload: {
+            orderType: 'LIMIT',
+            session: 'NORMAL',
+            price: currentModalSpec.price,
+            duration: 'DAY',
+            orderStrategyType: currentModalSpec.legs && currentModalSpec.legs.length > 1 ? 'VERTICAL' : 'SINGLE',
+            orderLegCollection: (currentModalSpec.legs || []).map(l => ({
+              instruction: l.action === 'SELL' ? 'SELL_TO_OPEN' : 'BUY_TO_OPEN',
+              quantity: currentModalQty,
+              instrument: {
+                symbol: `${currentModalSpec.symbol} ${l.option_type} ${l.strike}`,
+                assetType: 'OPTION'
+              }
+            }))
+          }
+        };
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+
+        const resultBox = document.getElementById('schwabPreviewResultBox');
+        const resultDetails = document.getElementById('schwabPreviewDetails');
+        const resultStatus = document.getElementById('schwabPreviewStatus');
+
+        if (resultBox && resultDetails) {
+          resultBox.classList.remove('hidden');
+          resultStatus.innerText = (result.status || 'RESPONSE').toUpperCase();
+          resultStatus.className = (result.status === 'success' || result.status === 'placed') ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold';
+          resultDetails.innerText = JSON.stringify(result, null, 2);
+        }
+
+        if (result.status === 'placed') {
+          playAlertTone('success');
+          alert(`Order Placed on Charles Schwab!
+Order ID: ${result.order_id || 'SUBMITTED'}`);
+          closeTradeModal();
+        }
+      } catch (e) {
+        alert('Schwab order error: ' + e);
+      } finally {
+        if (btn) btn.innerText = isPreview ? '🔍 Dry-Run Preview Order' : '🚨 Place Live Order';
+      }
+    }
+
     async function checkSchwabTraderStatus() {
       const badge = document.getElementById('schwabTraderBadge');
       const notice = document.getElementById('schwabTraderNotice');
+      const acctSelect = document.getElementById('schwabAccountSelect');
       if (!badge || !notice) return;
       try {
         const res = await fetch('/api/schwab/trader/status');
         if (res.ok) {
           const data = await res.json();
+          schwabTraderInfo = data;
           if (data.trading_ready) {
             badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-black border border-white';
             badge.innerText = `🟢 Schwab Trader Ready (${data.accounts.length} Accts Linked)`;
             notice.innerHTML = `Connected to Charles Schwab Trader API with active trading scope. Linked Accounts: <code class="text-cyan-300 font-bold">${data.accounts.map(a => a.accountNumber).join(', ')}</code>.`;
+            if (acctSelect && data.accounts) {
+              acctSelect.innerHTML = data.accounts.map(a => `<option value="${a.hashValue}">${a.accountNumber} (${a.accountNumber.startsWith('5') ? 'Margin' : 'Brokerage'})</option>`).join('');
+            }
           } else if (data.token_valid) {
             badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-purple-900 border border-purple-400 text-purple-300';
             badge.innerText = '📡 Market Data Only (Trading Inactive)';
-            notice.innerHTML = `Schwab Market Data is active. To enable live trading, add the <strong>"Accounts and Trading Production"</strong> product to your app in developer.schwab.com. You can paper trade safely below right now!`;
+            notice.innerHTML = `Schwab Market Data is active. To enable live trading, click <strong>"Authorize Trading Token"</strong> or enable <strong>"Accounts and Trading Production"</strong> in developer.schwab.com.`;
           }
         }
       } catch (e) {}

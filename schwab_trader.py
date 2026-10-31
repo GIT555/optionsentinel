@@ -324,3 +324,69 @@ class SchwabTraderClient:
                 },
             ],
         }
+
+    @staticmethod
+    def build_long_option_order(
+        symbol: str, strike: float, expiration: str, is_call: bool, limit_price: float, contracts: int = 1
+    ) -> Dict[str, Any]:
+        """Constructs a Long Option order payload (Buy To Open Call or Put, e.g. LEAP)."""
+        occ_sym = format_schwab_occ_symbol(symbol, expiration, "CALL" if is_call else "PUT", strike)
+        return {
+            "orderType": "LIMIT",
+            "session": "NORMAL",
+            "price": round(limit_price, 2),
+            "duration": "DAY",
+            "orderStrategyType": "SINGLE",
+            "orderLegCollection": [
+                {
+                    "instruction": "BUY_TO_OPEN",
+                    "quantity": abs(contracts),
+                    "instrument": {
+                        "symbol": occ_sym,
+                        "assetType": "OPTION",
+                    },
+                }
+            ],
+        }
+
+    @staticmethod
+    def build_diagonal_spread_order(
+        symbol: str,
+        long_strike: float,
+        long_exp: str,
+        short_strike: float,
+        short_exp: str,
+        is_call: bool,
+        net_debit: float,
+        contracts: int = 1,
+    ) -> Dict[str, Any]:
+        """Constructs a Diagonal Spread / PMCC order payload for Schwab (Long LEAP + Short near-term)."""
+        opt_type = "CALL" if is_call else "PUT"
+        long_occ = format_schwab_occ_symbol(symbol, long_exp, opt_type, long_strike)
+        short_occ = format_schwab_occ_symbol(symbol, short_exp, opt_type, short_strike)
+        return {
+            "orderType": "NET_DEBIT",
+            "session": "NORMAL",
+            "price": round(abs(net_debit), 2),
+            "duration": "DAY",
+            "orderStrategyType": "DIAGONAL",
+            "orderLegCollection": [
+                {
+                    "instruction": "BUY_TO_OPEN",
+                    "quantity": abs(contracts),
+                    "instrument": {
+                        "symbol": long_occ,
+                        "assetType": "OPTION",
+                    },
+                },
+                {
+                    "instruction": "SELL_TO_OPEN",
+                    "quantity": abs(contracts),
+                    "instrument": {
+                        "symbol": short_occ,
+                        "assetType": "OPTION",
+                    },
+                },
+            ],
+        }
+
