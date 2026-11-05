@@ -2071,13 +2071,47 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         total_trading_cash = balances_data.get("total_trading_net_cash", 51500.0)
         total_csp_collateral = 0.0
+        accounts_data = balances_data.get("accounts", {})
+        apy = balances_data.get("cash_sweep_apy", 0.0475)
+
+        # Precompute per-account CSP collateral from manual positions
+        account_csp_map = {}
         for p in manual_positions:
             if p.get("option_type") == "PUT" and p.get("contracts", 0) < 0:
-                total_csp_collateral += float(p.get("strike", 0.0)) * 100.0 * abs(int(p.get("contracts", 0)))
+                c_strike = float(p.get("strike", 0.0))
+                c_qty = abs(int(p.get("contracts", 0)))
+                c_collat = c_strike * 100.0 * c_qty
+                total_csp_collateral += c_collat
+                p_acct = str(p.get("account", "UNKNOWN")).strip()
+                account_csp_map[p_acct] = account_csp_map.get(p_acct, 0.0) + c_collat
+
         total_csp_collateral = round(total_csp_collateral, 2)
         utilization_pct = round((total_csp_collateral / total_trading_cash) * 100.0, 1) if total_trading_cash > 0 else 0.0
         dry_powder_remaining = round(max(0.0, total_trading_cash - total_csp_collateral), 2)
         safety_status = "SAFE" if utilization_pct < 40.0 else ("MODERATE" if utilization_pct <= 60.0 else "OVER_LEVERAGED")
+
+        # Enrich each account with per-account safety radar metrics
+        for acct_key, acct_info in list(accounts_data.items()):
+            acct_collat = 0.0
+            for p_acct, collat_val in account_csp_map.items():
+                if p_acct.upper() == acct_key.upper() or p_acct.upper() == str(acct_info.get("account_number", "")).upper():
+                    acct_collat += collat_val
+
+            acct_net_cash = float(acct_info.get("net_cash", 0.0))
+            acct_gross_cash = float(acct_info.get("gross_cash", 0.0))
+            acct_util = round((acct_collat / acct_net_cash) * 100.0, 1) if acct_net_cash > 0 else (100.0 if acct_collat > 0 else 0.0)
+            acct_dry_powder = round(max(0.0, acct_net_cash - acct_collat), 2)
+            acct_status = "SAFE" if acct_util < 40.0 else ("MODERATE" if acct_util <= 60.0 else "OVER_LEVERAGED")
+            acct_ann_yield = round(acct_net_cash * apy, 2)
+            acct_mo_yield = round(acct_ann_yield / 12.0, 2)
+
+            acct_info["csp_collateral"] = round(acct_collat, 2)
+            acct_info["dry_powder_remaining"] = acct_dry_powder
+            acct_info["utilization_pct"] = acct_util
+            acct_info["safety_status"] = acct_status
+            acct_info["annual_cash_yield_dollars"] = acct_ann_yield
+            acct_info["monthly_cash_yield_dollars"] = acct_mo_yield
+            acct_info["cash_sweep_apy"] = apy
 
         cash_safety_summary = {
             "total_trading_net_cash": total_trading_cash,
@@ -2085,11 +2119,11 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "dry_powder_remaining": dry_powder_remaining,
             "utilization_pct": utilization_pct,
             "safety_status": safety_status,
-            "cash_sweep_apy": balances_data.get("cash_sweep_apy", 0.0475),
-            "annual_cash_yield_dollars": balances_data.get("annual_cash_yield_dollars", round(total_trading_cash * 0.0475, 2)),
-            "monthly_cash_yield_dollars": balances_data.get("monthly_cash_yield_dollars", round((total_trading_cash * 0.0475) / 12.0, 2)),
+            "cash_sweep_apy": apy,
+            "annual_cash_yield_dollars": balances_data.get("annual_cash_yield_dollars", round(total_trading_cash * apy, 2)),
+            "monthly_cash_yield_dollars": balances_data.get("monthly_cash_yield_dollars", round((total_trading_cash * apy) / 12.0, 2)),
             "total_portfolio_net_worth": balances_data.get("total_portfolio_net_worth", 0.0),
-            "accounts": balances_data.get("accounts", {}),
+            "accounts": accounts_data,
         }
 
         summary = {
