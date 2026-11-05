@@ -1,7 +1,12 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-# Environment & API Secrets (NEVER COMMIT)
+.venv/
+venv/
+*.log
+
+# ===== Environment & API Secrets (NEVER COMMIT) =====
 .env
 .env.*
 !.env.example
@@ -11,18 +16,26 @@ schwab_tokens.json
 *credentials*
 *.key
 *.pem
-.venv/
-venv/
-*.log
-*.csv
+*.p12
+*.pfx
+
+# ===== Personal / Brokerage Data (CONFIDENTIAL) =====
 Fidelity/
+*.csv
 positions.csv
+portfolio_balances.json
+
+# ===== Runtime data folder: ignore everything except the watchlist config =====
+data/*
+!data/watchlist.json
+
+# Databases, caches, browser profiles, locks
 *.db
+*.db-*
+*.sqlite
+*.sqlite3
 *.bak
 market_cache.db*
 paper_trading.db*
 .schwab_browser_profile/
-data/.schwab_browser_profile/
-portfolio_balances.json
-data/portfolio_balances.json
 *.lock
