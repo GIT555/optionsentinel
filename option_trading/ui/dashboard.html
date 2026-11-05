@@ -1381,6 +1381,30 @@
 
         </div>
 
+        <!-- Capital & P&L Telemetry Strip -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-slate-800">
+          <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div id="safeInvestedCapLabel" class="text-[10px] font-bold text-slate-400 uppercase">Total Original Capital</div>
+            <div id="safeInvestedCap" class="text-base font-black text-cyan-300 font-mono">$0.00</div>
+            <div id="safeInvestedCapSub" class="text-[10px] text-slate-400">Net Principal Contributed</div>
+          </div>
+          <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div id="safeAcctValLabel" class="text-[10px] font-bold text-slate-400 uppercase">Total Portfolio Value</div>
+            <div id="safeAcctVal" class="text-base font-black text-white font-mono">$0.00</div>
+            <div id="safeAcctValSub" class="text-[10px] text-slate-400">Total Liquidated Net Worth</div>
+          </div>
+          <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div id="safeUnrealizedPnLLabel" class="text-[10px] font-bold text-slate-400 uppercase">Total Unrealized P&amp;L</div>
+            <div id="safeUnrealizedPnL" class="text-base font-black text-emerald-400 font-mono">+$0.00</div>
+            <div id="safeUnrealizedPnLPct" class="text-[10px] font-bold text-emerald-300 font-mono">+0.00% Net Return</div>
+          </div>
+          <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-2.5 text-center">
+            <div id="safePositionsCostLabel" class="text-[10px] font-bold text-slate-400 uppercase">Positions Cost Basis</div>
+            <div id="safePositionsCost" class="text-base font-black text-purple-300 font-mono">$0.00</div>
+            <div id="safePositionsCostSub" class="text-[10px] text-slate-400">Stocks &bull; ETFs &bull; Funds</div>
+          </div>
+        </div>
+
       </div>
 
       <!-- COMBINED EQUITY + OPTION SYNERGY: NET DELTA & COVERED CALL CAPACITY -->
@@ -4758,6 +4782,14 @@
       const utilBar = document.getElementById('safeUtilizationBar');
       const badge = document.getElementById('cashSafetyBadge');
 
+      const investedCapEl = document.getElementById('safeInvestedCap');
+      const investedCapLabel = document.getElementById('safeInvestedCapLabel');
+      const acctValEl = document.getElementById('safeAcctVal');
+      const acctValLabel = document.getElementById('safeAcctValLabel');
+      const unrealizedPnLEl = document.getElementById('safeUnrealizedPnL');
+      const unrealizedPnLPctEl = document.getElementById('safeUnrealizedPnLPct');
+      const positionsCostEl = document.getElementById('safePositionsCost');
+
       let netCash = 0.0;
       let collat = 0.0;
       let grossCollat = 0.0;
@@ -4768,6 +4800,11 @@
       let annualYield = 0.0;
       let monthlyYield = 0.0;
       let accountTitle = 'All Accounts (Consolidated)';
+      let investedCap = 0.0;
+      let acctVal = 0.0;
+      let unrealizedPnL = 0.0;
+      let pnlPct = 0.0;
+      let positionsCost = 0.0;
 
       const isAccountSelected = selectedCashSafetyAccount && selectedCashSafetyAccount !== 'ALL' && cs.accounts && cs.accounts[selectedCashSafetyAccount];
 
@@ -4785,10 +4822,18 @@
         annualYield = acct.annual_cash_yield_dollars || (netCash * apy);
         monthlyYield = acct.monthly_cash_yield_dollars || (annualYield / 12.0);
 
+        investedCap = acct.net_invested_capital || 0.0;
+        acctVal = acct.total_account_value || 0.0;
+        unrealizedPnL = acct.unrealized_pnl !== undefined ? acct.unrealized_pnl : (acctVal - investedCap);
+        pnlPct = acct.pnl_pct !== undefined ? acct.pnl_pct : (investedCap > 0 ? (unrealizedPnL / investedCap * 100.0) : 0.0);
+        positionsCost = acct.long_cost_basis || acct.total_positions_cost_basis || 0.0;
+
         if (cashGrossLabel) cashGrossLabel.innerText = `Money Market Cash (${accountTitle})`;
         if (cashGrossSub) cashGrossSub.innerHTML = `<span class="text-emerald-300 font-bold">${sweepSymbol}</span> &bull; Acct #${acct.account_number || ''}`;
         if (yieldLabel) yieldLabel.innerText = `Cash Yield (${sweepSymbol} @ 4.75%)`;
         if (yieldTag) yieldTag.innerText = `${sweepSymbol} @ 4.75% APY (${accountTitle})`;
+        if (investedCapLabel) investedCapLabel.innerText = `Original Capital (${accountTitle})`;
+        if (acctValLabel) acctValLabel.innerText = `Account Value (${accountTitle})`;
       } else {
         netCash = cs.total_trading_net_cash || 0.0;
         collat = cs.total_csp_collateral || 0.0;
@@ -4799,10 +4844,18 @@
         annualYield = cs.annual_cash_yield_dollars || (netCash * 0.0475);
         monthlyYield = cs.monthly_cash_yield_dollars || (annualYield / 12.0);
 
+        investedCap = cs.total_portfolio_invested_capital || 0.0;
+        acctVal = cs.total_portfolio_net_worth || 0.0;
+        unrealizedPnL = cs.total_portfolio_unrealized_pnl !== undefined ? cs.total_portfolio_unrealized_pnl : (acctVal - investedCap);
+        pnlPct = cs.total_portfolio_pnl_pct !== undefined ? cs.total_portfolio_pnl_pct : (investedCap > 0 ? (unrealizedPnL / investedCap * 100.0) : 0.0);
+        positionsCost = cs.total_portfolio_cost_basis || 0.0;
+
         if (cashGrossLabel) cashGrossLabel.innerText = `Gross Money Market Cash`;
         if (cashGrossSub) cashGrossSub.innerHTML = `SPAXX &bull; FDRXX Sweep (All Accounts)`;
         if (yieldLabel) yieldLabel.innerText = `Guaranteed Cash Yield (SPAXX/FDRXX)`;
         if (yieldTag) yieldTag.innerText = `SPAXX/FDRXX @ 4.75% APY`;
+        if (investedCapLabel) investedCapLabel.innerText = `Total Original Capital`;
+        if (acctValLabel) acctValLabel.innerText = `Total Portfolio Value`;
       }
 
       if (cashGrossEl) cashGrossEl.innerText = `$${Math.round(netCash).toLocaleString()}`;
@@ -4811,6 +4864,20 @@
       if (collatEl) collatEl.innerText = `$${Math.round(collat).toLocaleString()}`;
       if (powderEl) powderEl.innerText = `$${Math.round(powder).toLocaleString()} Free Dry Powder`;
       if (utilPctEl) utilPctEl.innerText = `${utilPct.toFixed(1)}% Deployed`;
+
+      if (investedCapEl) investedCapEl.innerText = `$${Math.round(investedCap).toLocaleString()}`;
+      if (acctValEl) acctValEl.innerText = `$${Math.round(acctVal).toLocaleString()}`;
+      if (positionsCostEl) positionsCostEl.innerText = `$${Math.round(positionsCost).toLocaleString()}`;
+      if (unrealizedPnLEl) {
+        const sign = unrealizedPnL >= 0 ? '+' : '-';
+        unrealizedPnLEl.innerText = `${sign}$${Math.round(Math.abs(unrealizedPnL)).toLocaleString()}`;
+        unrealizedPnLEl.className = `text-base font-black font-mono ${unrealizedPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+      }
+      if (unrealizedPnLPctEl) {
+        const sign = pnlPct >= 0 ? '+' : '';
+        unrealizedPnLPctEl.innerText = `${sign}${pnlPct.toFixed(2)}% Net Return`;
+        unrealizedPnLPctEl.className = `text-[10px] font-bold font-mono ${pnlPct >= 0 ? 'text-emerald-300' : 'text-rose-300'}`;
+      }
 
       if (reliefTag) {
         if (hedgedRelief > 0) {

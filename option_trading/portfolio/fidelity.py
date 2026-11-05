@@ -440,6 +440,12 @@ def extract_fidelity_portfolio_balances(csv_path: str, output_json: Optional[str
                     "mutual_funds_value": 0.0,
                     "mutual_funds_count": 0,
                     "equities_value": 0.0,
+                    "long_cost_basis": 0.0,
+                    "short_proceeds": 0.0,
+                    "total_positions_cost_basis": 0.0,
+                    "net_invested_capital": 0.0,
+                    "unrealized_pnl": 0.0,
+                    "pnl_pct": 0.0,
                 }
 
             acc = accounts[acct_name]
@@ -447,6 +453,8 @@ def extract_fidelity_portfolio_balances(csv_path: str, output_json: Optional[str
             sym = get_col("symbol").upper()
             desc = get_col("description")
             curr_val = clean_currency(get_col("current value")) or 0.0
+            cost_basis = clean_currency(get_col("cost basis total")) or 0.0
+            qty = clean_currency(get_col("quantity")) or 0.0
 
             acc["total_account_value"] += curr_val
 
@@ -464,17 +472,29 @@ def extract_fidelity_portfolio_balances(csv_path: str, output_json: Optional[str
                     acc["cash_sweep_symbol"] = "FDRXX"
             elif is_pending:
                 acc["pending_cash"] += curr_val
-            elif inv_type in ("mutual funds", "others"):
-                acc["mutual_funds_value"] += curr_val
-                acc["mutual_funds_count"] += 1
-            elif inv_type in ("stocks", "etfs"):
-                acc["equities_value"] += curr_val
+            else:
+                acc["total_positions_cost_basis"] += cost_basis
+                if qty < 0:
+                    acc["short_proceeds"] += cost_basis
+                else:
+                    acc["long_cost_basis"] += cost_basis
+
+                if inv_type in ("mutual funds", "others"):
+                    acc["mutual_funds_value"] += curr_val
+                    acc["mutual_funds_count"] += 1
+                elif inv_type in ("stocks", "etfs"):
+                    acc["equities_value"] += curr_val
 
     # Finalize per-account and global totals
     total_trading_gross_cash = 0.0
     total_trading_pending_cash = 0.0
     total_trading_net_cash = 0.0
     total_portfolio_net_worth = 0.0
+    total_long_cost_basis = 0.0
+    total_short_proceeds = 0.0
+    total_positions_cost_basis = 0.0
+    total_net_invested_capital = 0.0
+    total_portfolio_unrealized_pnl = 0.0
 
     for a_name, a in accounts.items():
         a["gross_cash"] = round(a["gross_cash"], 2)
@@ -483,12 +503,35 @@ def extract_fidelity_portfolio_balances(csv_path: str, output_json: Optional[str
         a["total_account_value"] = round(a["total_account_value"], 2)
         a["mutual_funds_value"] = round(a["mutual_funds_value"], 2)
         a["equities_value"] = round(a["equities_value"], 2)
+        a["long_cost_basis"] = round(a["long_cost_basis"], 2)
+        a["short_proceeds"] = round(a["short_proceeds"], 2)
+        a["total_positions_cost_basis"] = round(a["total_positions_cost_basis"], 2)
+
+        # Net Invested Capital = Long Assets Cost + Net Cash - Short Proceeds
+        # (Accounts for uninvested cash in money market sweeps)
+        net_cap = a["long_cost_basis"] + a["net_cash"] - a["short_proceeds"]
+        a["net_invested_capital"] = round(net_cap, 2)
+        pnl = a["total_account_value"] - a["net_invested_capital"]
+        a["unrealized_pnl"] = round(pnl, 2)
+        a["pnl_pct"] = round((pnl / a["net_invested_capital"] * 100.0), 2) if a["net_invested_capital"] > 0 else 0.0
 
         total_portfolio_net_worth += a["total_account_value"]
+        total_long_cost_basis += a["long_cost_basis"]
+        total_short_proceeds += a["short_proceeds"]
+        total_positions_cost_basis += a["total_positions_cost_basis"]
+        total_net_invested_capital += a["net_invested_capital"]
+        total_portfolio_unrealized_pnl += a["unrealized_pnl"]
+
         if a["is_trading_account"]:
             total_trading_gross_cash += a["gross_cash"]
             total_trading_pending_cash += a["pending_cash"]
             total_trading_net_cash += a["net_cash"]
+
+    total_portfolio_pnl_pct = (
+        round((total_portfolio_unrealized_pnl / total_net_invested_capital * 100.0), 2)
+        if total_net_invested_capital > 0
+        else 0.0
+    )
 
     apy = 0.0475  # Fidelity Money Market default APY (SPAXX ~4.75%)
     annual_yield = round(total_trading_net_cash * apy, 2)
@@ -501,6 +544,10 @@ def extract_fidelity_portfolio_balances(csv_path: str, output_json: Optional[str
         "total_trading_gross_cash": round(total_trading_gross_cash, 2),
         "total_trading_pending_cash": round(total_trading_pending_cash, 2),
         "total_portfolio_net_worth": round(total_portfolio_net_worth, 2),
+        "total_portfolio_cost_basis": round(total_positions_cost_basis, 2),
+        "total_portfolio_invested_capital": round(total_net_invested_capital, 2),
+        "total_portfolio_unrealized_pnl": round(total_portfolio_unrealized_pnl, 2),
+        "total_portfolio_pnl_pct": total_portfolio_pnl_pct,
         "cash_sweep_apy": apy,
         "annual_cash_yield_dollars": annual_yield,
         "monthly_cash_yield_dollars": monthly_yield,

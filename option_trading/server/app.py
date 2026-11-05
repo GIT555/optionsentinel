@@ -2224,6 +2224,10 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "annual_cash_yield_dollars": balances_data.get("annual_cash_yield_dollars", round(total_trading_cash * apy, 2)),
             "monthly_cash_yield_dollars": balances_data.get("monthly_cash_yield_dollars", round((total_trading_cash * apy) / 12.0, 2)),
             "total_portfolio_net_worth": balances_data.get("total_portfolio_net_worth", 0.0),
+            "total_portfolio_cost_basis": balances_data.get("total_portfolio_cost_basis", 0.0),
+            "total_portfolio_invested_capital": balances_data.get("total_portfolio_invested_capital", 0.0),
+            "total_portfolio_unrealized_pnl": balances_data.get("total_portfolio_unrealized_pnl", 0.0),
+            "total_portfolio_pnl_pct": balances_data.get("total_portfolio_pnl_pct", 0.0),
             "accounts": accounts_data,
         }
 
