@@ -3435,15 +3435,18 @@
 
               : '<span class="px-2.5 py-1 rounded-lg bg-amber-400 text-black font-black text-xs">BEAR PUT DEBIT</span>');
 
-        const badge = s.is_qualified
-
-          ? (isCredit
-
-              ? '<span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-black border border-white">QUALIFIED CREDIT</span>'
-
-              : '<span class="px-3 py-1 rounded-full text-xs font-black bg-cyan-400 text-black border border-white">QUALIFIED DEBIT</span>')
-
-          : `<span class="px-2.5 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">WATCHLIST</span>`;
+        let badge = '';
+        if (s.is_qualified) {
+          badge = isCredit
+            ? '<span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-black border border-white">QUALIFIED CREDIT</span>'
+            : '<span class="px-3 py-1 rounded-full text-xs font-black bg-cyan-400 text-black border border-white">QUALIFIED DEBIT</span>';
+        } else if (s.status && s.status.includes('LOW ROR')) {
+          badge = `<span class="px-2.5 py-1 rounded-lg bg-rose-950/80 border border-rose-500 text-rose-300 font-black text-xs">⚠️ ${s.status}</span>`;
+        } else if (s.status && s.status.includes('EARNINGS')) {
+          badge = `<span class="px-2.5 py-1 rounded-lg bg-amber-950/80 border border-amber-500 text-amber-300 font-black text-xs">⚠️ ${s.status}</span>`;
+        } else {
+          badge = `<span class="px-2.5 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">${s.status || 'WATCHLIST'}</span>`;
+        }
 
         const expFormatted = formatExpDate(s.expiration || s.short_contract, s.target_dte);
 

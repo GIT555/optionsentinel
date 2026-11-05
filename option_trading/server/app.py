@@ -913,8 +913,28 @@ class StrategyScanner:
             earn_date = snap.earnings_date
             days_earn = snap.days_to_earnings
             earn_warning = None
-            is_qualified = (is_credit and ivr >= 35.0) or (not is_credit and ivr < 25.0 and rsi < 40.0)
-            status_text = "QUALIFIED SPREAD" if is_qualified else "MONITOR"
+            # Multi-Layer Volatility & ROR Safety Gates:
+            # 1. Volatility Regime: High IV (IVR >= 35%) for Credit, Low IV (<25%) + Oversold (<40) for Debit
+            regime_ok = (is_credit and ivr >= 35.0) or (not is_credit and ivr < 25.0 and rsi < 40.0)
+
+            # 2. ROR / Return on Risk in Good Standing:
+            # Credit Spreads: Minimum 15.0% ROC AND minimum $0.15 premium collected (never risk $400 for $5 pennies).
+            # Debit Spreads: Minimum 35.0% ROC.
+            ror_ok = (is_credit and roc >= 15.0 and net_price >= 0.15) or (not is_credit and roc >= 35.0)
+
+            # 3. Volatility Crash Cushion:
+            # Buffer >= 3.0% OTM distance and Probability of Profit >= 65.0%
+            safety_ok = buffer_pct >= 3.0 and pop >= 65.0
+
+            is_qualified = regime_ok and ror_ok and safety_ok
+            if is_qualified:
+                status_text = "QUALIFIED CREDIT" if is_credit else "QUALIFIED DEBIT"
+            elif not ror_ok and regime_ok:
+                status_text = f"LOW ROR ({roc:.1f}% < 15%)"
+            elif not safety_ok:
+                status_text = f"TIGHT BUFFER ({buffer_pct:.1f}%)"
+            else:
+                status_text = f"MONITOR (IVR {ivr:.0f}%)"
 
             if days_earn is not None and 0 <= days_earn <= dte_val:
                 earn_warning = f"⚠️ EARNINGS in {days_earn}d ({earn_date})"
@@ -963,7 +983,7 @@ class StrategyScanner:
                 "regime_note": f"IVR {ivr:.0f}% ({'High IV' if is_high_iv else 'Low IV'}) • RSI {rsi:.0f} ({'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral')})"
             })
 
-        spreads.sort(key=lambda s: (not s["is_qualified"], -s["iv_rank"] if s["is_credit"] else s["iv_rank"]))
+        spreads.sort(key=lambda s: (not s["is_qualified"], -s["roc"]))
         return spreads
 
 

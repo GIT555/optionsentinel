@@ -725,8 +725,20 @@ class StrategyScanner:
                 exit_target = round(net_debit * 1.50, 2)
                 trade_action = f"BUY 1x {long_sym} / SELL 1x {short_sym}"
 
-            is_qualified = True
-            status_text = "READY TO TRADE"
+            # Multi-Layer Volatility & ROR Safety Gates:
+            regime_ok = (is_credit and snap.iv_rank >= 35.0) or (not is_credit and snap.iv_rank < 25.0 and snap.rsi_14 < 40.0)
+            ror_ok = (is_credit and roc >= 15.0 and net_price >= 0.15) or (not is_credit and roc >= 35.0)
+            safety_ok = buffer_pct >= 3.0 and pop >= 65.0
+
+            is_qualified = regime_ok and ror_ok and safety_ok
+            if is_qualified:
+                status_text = "QUALIFIED CREDIT" if is_credit else "QUALIFIED DEBIT"
+            elif not ror_ok and regime_ok:
+                status_text = f"LOW ROR ({roc:.1f}% < 15%)"
+            elif not safety_ok:
+                status_text = f"TIGHT BUFFER ({buffer_pct:.1f}%)"
+            else:
+                status_text = f"MONITOR (IVR {snap.iv_rank:.0f}%)"
 
             earn_date = snap.earnings_date
             days_earn = snap.days_to_earnings
