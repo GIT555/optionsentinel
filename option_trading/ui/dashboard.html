@@ -1541,7 +1541,7 @@
         if (res.status === 'success') {
           symInput.value = '';
           if (levInput) levInput.checked = false;
-          await fetchDashboardData();
+          await manualSync();
         } else {
           alert('Error adding ticker: ' + (res.message || 'Unknown error'));
         }
@@ -1562,7 +1562,7 @@
         });
         const res = await resp.json();
         if (res.status === 'success') {
-          await fetchDashboardData();
+          await manualSync();
         } else {
           alert('Error removing ticker: ' + (res.message || 'Unknown error'));
         }
@@ -2636,13 +2636,13 @@
             }
 
             // Options Radar Button
-            let optBadge = '<button onclick="jumpToRadar('' + t.symbol + '')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-yellow-300 text-xs font-black border border-slate-600 transition">⚡ View Radar</button>';
+            let optBadge = `<button onclick="jumpToRadar('${t.symbol}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-yellow-300 text-xs font-black border border-slate-600 transition">⚡ View Radar</button>`;
             if (t.wheel_qualified) {
-              optBadge = '<button onclick="showTab('wheel')" class="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black transition shadow">🛡️ Wheel CSP</button>';
+              optBadge = `<button onclick="showTab('wheel')" class="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black transition shadow">🛡️ Wheel CSP</button>`;
             } else if (t.leap_qualified) {
-              optBadge = '<button onclick="showTab('leap')" class="px-2.5 py-1 rounded-lg bg-purple-500 hover:bg-purple-400 text-white text-xs font-black transition shadow">🚀 LEAP Call</button>';
+              optBadge = `<button onclick="showTab('leap')" class="px-2.5 py-1 rounded-lg bg-purple-500 hover:bg-purple-400 text-white text-xs font-black transition shadow">🚀 LEAP Call</button>`;
             } else if (t.is_leveraged) {
-              optBadge = '<button onclick="showTab('leveraged')" class="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-xs font-black transition shadow">⚡ 3x CSP</button>';
+              optBadge = `<button onclick="showTab('leveraged')" class="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-xs font-black transition shadow">⚡ 3x CSP</button>`;
             }
 
             tr.innerHTML = `

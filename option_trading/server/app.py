@@ -2119,7 +2119,16 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(payload)
 
     def log_message(self, format, *args):
-        pass
+        # Concise console log for API activity (skips static/favicon noise)
+        try:
+            req = str(args[0]) if args else ""
+            if "/api/" in req:
+                code = args[1] if len(args) > 1 else ""
+                path = req.split(" ")[1] if " " in req else req
+                path = path.split("?")[0]
+                print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {self.client_address[0]} {req.split(' ')[0]} {path} -> {code}", flush=True)
+        except Exception:
+            pass
 
 
 # ==============================================================================
@@ -2257,7 +2266,10 @@ def main():
     except Exception as e:
         print(f"[STARTUP WARNING] Fidelity import failed ({e}) -- using existing positions.csv as-is")
 
+    print(f"[STARTUP] Fetching live quotes + option chains for {len(WATCHLIST_MATRIX)} tickers (first load can take 10-30s)...", flush=True)
+    _t0 = time.time()
     scanner = StrategyScanner()
+    print(f"[STARTUP] Market data loaded in {time.time() - _t0:.1f}s ({len(scanner.snapshots)}/{len(WATCHLIST_MATRIX)} tickers)", flush=True)
     sentinel = GammaDangerSentinel(scanner, positions_file=POSITIONS_FILE)
 
     if args.cli:
