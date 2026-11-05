@@ -21,6 +21,7 @@ import threading
 import time
 import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
+from ..config import SCHWAB_TOKENS_FILE
 
 try:
     import requests
@@ -54,8 +55,7 @@ class SchwabTraderClient:
     """Official Schwab Trader API v1 Client."""
 
     def __init__(self, token_path: Optional[str] = None):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.token_path = token_path or os.path.join(base_dir, "schwab_tokens.json")
+        self.token_path = token_path or SCHWAB_TOKENS_FILE
         self._lock = threading.Lock()
         self.app_key = ""
         self.app_secret = ""
@@ -65,7 +65,7 @@ class SchwabTraderClient:
         self._sync_env_credentials()
 
     def _sync_env_credentials(self):
-        from live_market_data import _load_local_dotenv, get_app_credential
+        from ..market.client import _load_local_dotenv, get_app_credential
         dotenv_vars = _load_local_dotenv()
         self.app_key = get_app_credential("SCHWAB_APP_KEY", dotenv_vars)
         self.app_secret = get_app_credential("SCHWAB_APP_SECRET", dotenv_vars)

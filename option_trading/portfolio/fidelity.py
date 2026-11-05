@@ -523,17 +523,17 @@ def convert_latest_fidelity_to_positions(
     output_csv: Optional[str] = None,
 ) -> Tuple[str, List[ConvertedOptionPosition]]:
     """High-level helper callable from both CLI and the web server."""
-    root_dir = base_dir or os.path.dirname(os.path.abspath(__file__))
-    fidelity_dir = os.path.join(root_dir, "Fidelity")
+    from ..config import BALANCES_FILE, FIDELITY_DIR, POSITIONS_FILE
+    fidelity_dir = os.path.join(base_dir, "Fidelity") if base_dir else FIDELITY_DIR
     src_csv = input_csv or find_latest_fidelity_csv(fidelity_dir)
     if not src_csv or not os.path.exists(src_csv):
         raise FileNotFoundError(f"No Fidelity CSV found in {fidelity_dir}")
 
-    dst_csv = output_csv or os.path.join(root_dir, "positions.csv")
+    dst_csv = output_csv or POSITIONS_FILE
     positions = parse_fidelity_csv(src_csv, existing_positions_csv=dst_csv)
     write_positions_csv(positions, dst_csv, os.path.basename(src_csv))
 
-    balances_json = os.path.join(root_dir, "portfolio_balances.json")
+    balances_json = BALANCES_FILE
     try:
         extract_fidelity_portfolio_balances(src_csv, output_json=balances_json)
     except Exception:

@@ -19,6 +19,7 @@ import sqlite3
 import threading
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
+from ..config import PAPER_DB_FILE
 
 
 @dataclass
@@ -39,8 +40,7 @@ class PaperTradingEngine:
     """Thread-safe simulated brokerage engine persisting into paper_trading.db."""
 
     def __init__(self, db_path: Optional[str] = None, starting_cash: float = 100000.0):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.db_path = db_path or os.path.join(base_dir, "paper_trading.db")
+        self.db_path = db_path or PAPER_DB_FILE
         self.starting_cash = starting_cash
         self._lock = threading.Lock()
         self._init_db()

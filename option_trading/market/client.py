@@ -24,6 +24,7 @@ import time
 import urllib.parse
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
+from ..config import ENV_FILE, MARKET_CACHE_FILE, SCHWAB_TOKENS_FILE
 
 try:
     import truststore
@@ -135,8 +136,7 @@ class SQLiteMarketCache:
 
     def __init__(self, db_path: Optional[str] = None, enabled: bool = False):
         self.enabled = enabled
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.db_path = db_path or os.path.join(base_dir, "market_cache.db")
+        self.db_path = db_path or MARKET_CACHE_FILE
         self._lock = threading.Lock()
         if self.enabled:
             self._init_db()
@@ -206,7 +206,7 @@ class SQLiteMarketCache:
 def _load_local_dotenv() -> Dict[str, str]:
     """Loads key=value pairs from local .env file without external dependencies."""
     env_map: Dict[str, str] = {}
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    env_path = ENV_FILE
     if os.path.exists(env_path):
         try:
             with open(env_path, "r", encoding="utf-8") as f:
@@ -284,8 +284,7 @@ class SchwabReadOnlyClient:
     def __init__(self, limiter: TokenBucketRateLimiter):
         self.limiter = limiter
         self._lock = threading.Lock()
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.token_path = os.path.join(base_dir, "schwab_tokens.json")
+        self.token_path = SCHWAB_TOKENS_FILE
         self.app_key = ""
         self.app_secret = ""
         self.redirect_uri = "https://127.0.0.1"

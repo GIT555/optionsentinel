@@ -8,10 +8,9 @@ import os
 import sys
 from typing import Dict, List, Optional
 from .models import AssetCategory, TickerMetadata
+from ..config import WATCHLIST_FILE
 
-DEFAULT_WATCHLIST_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "watchlist.json")
-)
+DEFAULT_WATCHLIST_PATH = WATCHLIST_FILE
 
 FALLBACK_WATCHLIST: Dict[str, TickerMetadata] = {
     "SPY": TickerMetadata("SPY", "SPDR S&P 500 ETF Trust", AssetCategory.CORE_EQUITY, False, False, 1.0, 1.00),

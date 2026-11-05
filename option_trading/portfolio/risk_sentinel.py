@@ -17,14 +17,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.models import AssetCategory, parse_occ_expiration
 from ..core.scanner import StrategyScanner
+from ..config import POSITIONS_FILE
 
 
 class GammaDangerSentinel:
     """Audits manual entries in positions.csv against live market feeds."""
 
-    def __init__(self, scanner: StrategyScanner, positions_file: str = "positions.csv"):
+    def __init__(self, scanner: StrategyScanner, positions_file: Optional[str] = None):
         self.scanner = scanner
-        self.positions_file = os.path.abspath(positions_file)
+        self.positions_file = os.path.abspath(positions_file or POSITIONS_FILE)
         self.alert_history: List[Dict[str, Any]] = []
         self._lock = threading.Lock()
 

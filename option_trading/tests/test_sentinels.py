@@ -4,16 +4,16 @@ Automated Comprehensive Test Suite for Option Sentinel & Signal Sentinel (100% R
 
 import math
 import unittest
-from option_sentinel import (
+from option_trading.server.app import (
     QuantMath,
     WATCHLIST_MATRIX,
 )
-from signal_sentinel import (
+from option_trading.core.signal_sentinel import (
     StatMath,
     ActionSignal,
     ASSET_CONFIG,
 )
-from live_market_data import LiveMarketClient
+from option_trading.market.client import LiveMarketClient
 
 
 class TestQuantitativeMath(unittest.TestCase):
@@ -73,7 +73,7 @@ class TestUniverseConfiguration(unittest.TestCase):
         self.assertEqual(set(ASSET_CONFIG.keys()), set(WATCHLIST_MATRIX.keys()))
 
     def test_fidelity_converter_equity_and_options(self):
-        from convert_fidelity_positions import convert_latest_fidelity_to_positions
+        from option_trading.portfolio.fidelity import convert_latest_fidelity_to_positions
         src_csv, positions = convert_latest_fidelity_to_positions()
         self.assertTrue(len(positions) > 0)
         types = {p.option_type for p in positions}

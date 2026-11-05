@@ -22,5 +22,7 @@ positions.csv
 market_cache.db*
 paper_trading.db*
 .schwab_browser_profile/
+data/.schwab_browser_profile/
 portfolio_balances.json
+data/portfolio_balances.json
 *.lock

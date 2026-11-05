@@ -16,11 +16,11 @@ import time
 import urllib.parse
 from typing import Optional, Tuple
 
-from live_market_data import SchwabReadOnlyClient, TokenBucketRateLimiter
+from ..market.client import SchwabReadOnlyClient, TokenBucketRateLimiter
+from ..config import DATA_DIR
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROFILE_DIR = os.path.join(BASE_DIR, ".schwab_browser_profile")
+PROFILE_DIR = os.path.join(DATA_DIR, ".schwab_browser_profile")
 
 
 def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> Tuple[bool, str]:
