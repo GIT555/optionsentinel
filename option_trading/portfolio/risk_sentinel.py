@@ -20,6 +20,96 @@ from ..core.scanner import StrategyScanner
 from ..config import POSITIONS_FILE
 
 
+def calculate_hedged_put_collateral(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Calculates institutional hedged put collateral under standard Reg-T / Portfolio Margin rules.
+    Detects when a short put is paired with a higher-strike long put (e.g. Bear Diagonal Spread / PMCP)
+    or vertical spread, reducing the cash required from full strike collateral down to the actual defined risk.
+    """
+    sym_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for p in positions:
+        sym = p.get("symbol")
+        if sym:
+            sym_groups.setdefault(sym, []).append(p)
+
+    gross_collateral = 0.0
+    effective_collateral = 0.0
+    hedged_relief = 0.0
+    hedged_details: List[str] = []
+
+    for sym, s_pos in sym_groups.items():
+        short_puts = [
+            {
+                "strike": float(p.get("strike", 0.0)),
+                "contracts": abs(int(float(p.get("contracts", 0)))),
+                "expiration": str(p.get("expiration", "")),
+            }
+            for p in s_pos
+            if p.get("option_type") == "PUT" and float(p.get("contracts", 0)) < 0
+        ]
+        long_puts = [
+            {
+                "strike": float(p.get("strike", 0.0)),
+                "available": abs(int(float(p.get("contracts", 0)))),
+                "expiration": str(p.get("expiration", "")),
+            }
+            for p in s_pos
+            if p.get("option_type") == "PUT" and float(p.get("contracts", 0)) > 0
+        ]
+
+        # Highest strike long put provides the best protective coverage
+        long_puts.sort(key=lambda x: -x["strike"])
+
+        for sp in short_puts:
+            sp_strike = sp["strike"]
+            qty_needed = sp["contracts"]
+            sp_gross = sp_strike * 100.0 * qty_needed
+            gross_collateral += sp_gross
+
+            for lp in long_puts:
+                if qty_needed <= 0:
+                    break
+                if lp["available"] <= 0:
+                    continue
+                match_qty = min(qty_needed, lp["available"])
+                lp_strike = lp["strike"]
+
+                if lp_strike >= sp_strike:
+                    # Long put strike >= short put strike (PMCP / Diagonal / Calendar Spread)
+                    # Zero downside gap risk; full strike collateral relief
+                    spread_collat = 0.0
+                    relief = sp_strike * 100.0 * match_qty
+                    hedged_relief += relief
+                    hedged_details.append(
+                        f"{sym}: Short {sp_strike:.1f}P ({sp['expiration']}) fully hedged by Long {lp_strike:.1f}P ({lp['expiration']}) [Relief: ${relief:,.0f}]"
+                    )
+                else:
+                    # Vertical credit spread (short strike > long strike)
+                    # Defined-risk width collateral required
+                    width = sp_strike - lp_strike
+                    spread_collat = width * 100.0 * match_qty
+                    relief = (sp_strike - width) * 100.0 * match_qty
+                    hedged_relief += relief
+                    hedged_details.append(
+                        f"{sym}: Short {sp_strike:.1f}P ({sp['expiration']}) spread-hedged by Long {lp_strike:.1f}P ({lp['expiration']}) [Width: ${width:.1f}, Collateral: ${spread_collat:,.0f}]"
+                    )
+
+                effective_collateral += spread_collat
+                qty_needed -= match_qty
+                lp["available"] -= match_qty
+
+            if qty_needed > 0:
+                uncovered_collat = sp_strike * 100.0 * qty_needed
+                effective_collateral += uncovered_collat
+
+    return {
+        "gross_collateral": round(gross_collateral, 2),
+        "effective_collateral": round(effective_collateral, 2),
+        "hedged_relief": round(hedged_relief, 2),
+        "hedged_details": hedged_details,
+    }
+
+
 class GammaDangerSentinel:
     """Audits manual entries in positions.csv against live market feeds."""
 
@@ -286,14 +376,11 @@ class GammaDangerSentinel:
             acct_cash = cash_by_account.get(acct, {}).get("cash_sweep", 0.0)
             total_portfolio_cash += acct_cash
 
-            collateral_req = 0.0
-            equity_val = 0.0
-
-            for p in acct_pos:
-                if p["option_type"] == "PUT" and p["contracts"] < 0:
-                    collateral_req += p["strike"] * abs(p["contracts"]) * 100.0
-                elif p["option_type"] == "EQUITY":
-                    equity_val += p["current_mid"] * p["contracts"]
+            acct_collat_info = calculate_hedged_put_collateral(acct_pos)
+            collateral_req = acct_collat_info["effective_collateral"]
+            gross_collat = acct_collat_info["gross_collateral"]
+            hedged_relief = acct_collat_info["hedged_relief"]
+            equity_val = sum(p["current_mid"] * p["contracts"] for p in acct_pos if p.get("option_type") == "EQUITY")
 
             total_collateral_committed += collateral_req
             total_equity_value += equity_val
@@ -303,6 +390,8 @@ class GammaDangerSentinel:
             account_summaries[acct] = {
                 "cash_sweep": round(acct_cash, 2),
                 "collateral_committed": round(collateral_req, 2),
+                "gross_collateral": round(gross_collat, 2),
+                "hedged_relief": round(hedged_relief, 2),
                 "free_cash": round(free_cash, 2),
                 "equity_value": round(equity_val, 2),
                 "utilization_pct": round(utilization, 1),

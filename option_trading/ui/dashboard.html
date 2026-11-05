@@ -1361,6 +1361,7 @@
             <div id="safeCollateralLocked" class="text-lg font-black text-amber-300 font-mono">$0.00</div>
 
             <div id="safeDryPowderRemaining" class="text-[11px] text-slate-300 font-mono">$0.00 Free Dry Powder</div>
+            <div id="safeHedgedReliefTag" class="text-[10px] text-emerald-400 font-bold mt-1 hidden"></div>
 
           </div>
 
@@ -4736,173 +4737,116 @@
     }
 
     function renderCashSafetySection(cs) {
-
       if (!cs) return;
-
       latestCashSafetySummary = cs;
 
       if (cs.accounts) {
-
         populateCashSafetyAccountFilter(cs.accounts);
-
       }
 
       const cashGrossEl = document.getElementById('safeCashGross');
-
       const cashGrossLabel = document.getElementById('safeCashGrossLabel');
-
       const cashGrossSub = document.getElementById('safeCashGrossSub');
-
       const yieldLabel = document.getElementById('safeCashYieldLabel');
-
       const yieldTag = document.getElementById('safeCashYieldTag');
-
       const yieldAnnEl = document.getElementById('safeCashYieldAnnual');
-
       const yieldMoEl = document.getElementById('safeCashYieldMonthly');
-
       const collatEl = document.getElementById('safeCollateralLocked');
-
       const powderEl = document.getElementById('safeDryPowderRemaining');
-
+      const reliefTag = document.getElementById('safeHedgedReliefTag');
       const utilPctEl = document.getElementById('safeUtilizationPct');
-
       const utilBar = document.getElementById('safeUtilizationBar');
-
       const badge = document.getElementById('cashSafetyBadge');
 
       let netCash = 0.0;
-
       let collat = 0.0;
-
+      let grossCollat = 0.0;
+      let hedgedRelief = 0.0;
       let powder = 0.0;
-
       let utilPct = 0.0;
-
       let sweepSymbol = 'SPAXX';
-
       let annualYield = 0.0;
-
       let monthlyYield = 0.0;
-
       let accountTitle = 'All Accounts (Consolidated)';
 
       const isAccountSelected = selectedCashSafetyAccount && selectedCashSafetyAccount !== 'ALL' && cs.accounts && cs.accounts[selectedCashSafetyAccount];
 
       if (isAccountSelected) {
-
         const acct = cs.accounts[selectedCashSafetyAccount];
-
         accountTitle = acct.account_name || selectedCashSafetyAccount;
-
         netCash = acct.net_cash || 0.0;
-
         collat = acct.csp_collateral || 0.0;
-
+        grossCollat = acct.gross_csp_collateral !== undefined ? acct.gross_csp_collateral : collat;
+        hedgedRelief = acct.hedged_relief || 0.0;
         powder = acct.dry_powder_remaining !== undefined ? acct.dry_powder_remaining : Math.max(0, netCash - collat);
-
         utilPct = acct.utilization_pct !== undefined ? acct.utilization_pct : (netCash > 0 ? (collat / netCash) * 100.0 : (collat > 0 ? 100.0 : 0.0));
-
         sweepSymbol = acct.cash_sweep_symbol || 'SPAXX';
-
         const apy = acct.cash_sweep_apy || cs.cash_sweep_apy || 0.0475;
-
         annualYield = acct.annual_cash_yield_dollars || (netCash * apy);
-
         monthlyYield = acct.monthly_cash_yield_dollars || (annualYield / 12.0);
 
         if (cashGrossLabel) cashGrossLabel.innerText = `Money Market Cash (${accountTitle})`;
-
         if (cashGrossSub) cashGrossSub.innerHTML = `<span class="text-emerald-300 font-bold">${sweepSymbol}</span> &bull; Acct #${acct.account_number || ''}`;
-
         if (yieldLabel) yieldLabel.innerText = `Cash Yield (${sweepSymbol} @ 4.75%)`;
-
         if (yieldTag) yieldTag.innerText = `${sweepSymbol} @ 4.75% APY (${accountTitle})`;
-
       } else {
-
         netCash = cs.total_trading_net_cash || 0.0;
-
         collat = cs.total_csp_collateral || 0.0;
-
+        grossCollat = cs.total_gross_collateral !== undefined ? cs.total_gross_collateral : collat;
+        hedgedRelief = cs.total_hedged_relief || 0.0;
         powder = cs.dry_powder_remaining || 0.0;
-
         utilPct = cs.utilization_pct || 0.0;
-
         annualYield = cs.annual_cash_yield_dollars || (netCash * 0.0475);
-
         monthlyYield = cs.monthly_cash_yield_dollars || (annualYield / 12.0);
 
         if (cashGrossLabel) cashGrossLabel.innerText = `Gross Money Market Cash`;
-
         if (cashGrossSub) cashGrossSub.innerHTML = `SPAXX &bull; FDRXX Sweep (All Accounts)`;
-
         if (yieldLabel) yieldLabel.innerText = `Guaranteed Cash Yield (SPAXX/FDRXX)`;
-
         if (yieldTag) yieldTag.innerText = `SPAXX/FDRXX @ 4.75% APY`;
-
       }
 
       if (cashGrossEl) cashGrossEl.innerText = `$${Math.round(netCash).toLocaleString()}`;
-
       if (yieldAnnEl) yieldAnnEl.innerText = `+$${Math.round(annualYield).toLocaleString()}/yr`;
-
       if (yieldMoEl) yieldMoEl.innerText = `+$${Math.round(monthlyYield).toLocaleString()}/mo @ 4.75% ${sweepSymbol}`;
-
       if (collatEl) collatEl.innerText = `$${Math.round(collat).toLocaleString()}`;
-
       if (powderEl) powderEl.innerText = `$${Math.round(powder).toLocaleString()} Free Dry Powder`;
-
       if (utilPctEl) utilPctEl.innerText = `${utilPct.toFixed(1)}% Deployed`;
 
-      const barWidth = Math.min(100, Math.max(2, utilPct));
-
-      if (utilBar) {
-
-        utilBar.style.width = `${barWidth}%`;
-
-        if (utilPct < 40) {
-
-          utilBar.className = 'bg-emerald-400 h-2 rounded-full transition-all duration-500';
-
-        } else if (utilPct <= 60) {
-
-          utilBar.className = 'bg-amber-400 h-2 rounded-full transition-all duration-500';
-
+      if (reliefTag) {
+        if (hedgedRelief > 0) {
+          reliefTag.classList.remove('hidden');
+          reliefTag.innerHTML = `🛡️ $${Math.round(hedgedRelief).toLocaleString()} Covered by Long Puts (Gross $${Math.round(grossCollat).toLocaleString()})`;
         } else {
-
-          utilBar.className = 'bg-rose-500 h-2 rounded-full transition-all duration-500';
-
+          reliefTag.classList.add('hidden');
         }
+      }
 
+      const barWidth = Math.min(100, Math.max(2, utilPct));
+      if (utilBar) {
+        utilBar.style.width = `${barWidth}%`;
+        if (utilPct < 40) {
+          utilBar.className = 'bg-emerald-400 h-2 rounded-full transition-all duration-500';
+        } else if (utilPct <= 60) {
+          utilBar.className = 'bg-amber-400 h-2 rounded-full transition-all duration-500';
+        } else {
+          utilBar.className = 'bg-rose-500 h-2 rounded-full transition-all duration-500';
+        }
       }
 
       if (badge) {
-
         const prefix = isAccountSelected ? `[${accountTitle}] ` : '';
-
+        const hedgeNote = hedgedRelief > 0 ? ` ($${Math.round(hedgedRelief / 1000)}k HEDGED)` : '';
         if (utilPct < 40) {
-
           badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-black border border-white';
-
-          badge.innerText = `🟢 ${prefix}SAFE: ${utilPct.toFixed(1)}% COLLATERAL LOCKED (<40% TARGET)`;
-
+          badge.innerText = `🟢 ${prefix}SAFE: ${utilPct.toFixed(1)}% COLLATERAL LOCKED (<40% TARGET)${hedgeNote}`;
         } else if (utilPct <= 60) {
-
           badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-amber-400 text-black border border-white';
-
-          badge.innerText = `🟡 ${prefix}MODERATE: ${utilPct.toFixed(1)}% DEPLOYED (40-60% CAUTION)`;
-
+          badge.innerText = `🟡 ${prefix}MODERATE: ${utilPct.toFixed(1)}% DEPLOYED (40-60% CAUTION)${hedgeNote}`;
         } else {
-
           badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-rose-600 text-white border border-white';
-
-          badge.innerText = `🔴 ${prefix}OVER-LEVERAGED: ${utilPct.toFixed(1)}% (>60% STOP NEW CSPS)`;
-
+          badge.innerText = `🔴 ${prefix}OVER-LEVERAGED: ${utilPct.toFixed(1)}% (>60% STOP NEW CSPS)${hedgeNote}`;
         }
-
       }
-
     }
 
     function renderDashboardData(data) {

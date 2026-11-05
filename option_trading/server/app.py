@@ -967,6 +967,96 @@ class StrategyScanner:
         return spreads
 
 
+def calculate_hedged_put_collateral(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Calculates institutional hedged put collateral under standard Reg-T / Portfolio Margin rules.
+    Detects when a short put is paired with a higher-strike long put (e.g. Bear Diagonal Spread / PMCP)
+    or vertical spread, reducing the cash required from full strike collateral down to the actual defined risk.
+    """
+    sym_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for p in positions:
+        sym = p.get("symbol")
+        if sym:
+            sym_groups.setdefault(sym, []).append(p)
+
+    gross_collateral = 0.0
+    effective_collateral = 0.0
+    hedged_relief = 0.0
+    hedged_details: List[str] = []
+
+    for sym, s_pos in sym_groups.items():
+        short_puts = [
+            {
+                "strike": float(p.get("strike", 0.0)),
+                "contracts": abs(int(float(p.get("contracts", 0)))),
+                "expiration": str(p.get("expiration", "")),
+            }
+            for p in s_pos
+            if p.get("option_type") == "PUT" and float(p.get("contracts", 0)) < 0
+        ]
+        long_puts = [
+            {
+                "strike": float(p.get("strike", 0.0)),
+                "available": abs(int(float(p.get("contracts", 0)))),
+                "expiration": str(p.get("expiration", "")),
+            }
+            for p in s_pos
+            if p.get("option_type") == "PUT" and float(p.get("contracts", 0)) > 0
+        ]
+
+        # Highest strike long put provides the best protective coverage
+        long_puts.sort(key=lambda x: -x["strike"])
+
+        for sp in short_puts:
+            sp_strike = sp["strike"]
+            qty_needed = sp["contracts"]
+            sp_gross = sp_strike * 100.0 * qty_needed
+            gross_collateral += sp_gross
+
+            for lp in long_puts:
+                if qty_needed <= 0:
+                    break
+                if lp["available"] <= 0:
+                    continue
+                match_qty = min(qty_needed, lp["available"])
+                lp_strike = lp["strike"]
+
+                if lp_strike >= sp_strike:
+                    # Long put strike >= short put strike (PMCP / Diagonal / Calendar Spread)
+                    # Zero downside gap risk; full strike collateral relief
+                    spread_collat = 0.0
+                    relief = sp_strike * 100.0 * match_qty
+                    hedged_relief += relief
+                    hedged_details.append(
+                        f"{sym}: Short {sp_strike:.1f}P ({sp['expiration']}) fully hedged by Long {lp_strike:.1f}P ({lp['expiration']}) [Relief: ${relief:,.0f}]"
+                    )
+                else:
+                    # Vertical credit spread (short strike > long strike)
+                    # Defined-risk width collateral required
+                    width = sp_strike - lp_strike
+                    spread_collat = width * 100.0 * match_qty
+                    relief = (sp_strike - width) * 100.0 * match_qty
+                    hedged_relief += relief
+                    hedged_details.append(
+                        f"{sym}: Short {sp_strike:.1f}P ({sp['expiration']}) spread-hedged by Long {lp_strike:.1f}P ({lp['expiration']}) [Width: ${width:.1f}, Collateral: ${spread_collat:,.0f}]"
+                    )
+
+                effective_collateral += spread_collat
+                qty_needed -= match_qty
+                lp["available"] -= match_qty
+
+            if qty_needed > 0:
+                uncovered_collat = sp_strike * 100.0 * qty_needed
+                effective_collateral += uncovered_collat
+
+    return {
+        "gross_collateral": round(gross_collateral, 2),
+        "effective_collateral": round(effective_collateral, 2),
+        "hedged_relief": round(hedged_relief, 2),
+        "hedged_details": hedged_details,
+    }
+
+
 class GammaDangerSentinel:
     """Audits manual entries in positions.csv against live market feeds."""
 
@@ -2070,42 +2160,50 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
         total_trading_cash = balances_data.get("total_trading_net_cash", 51500.0)
-        total_csp_collateral = 0.0
         accounts_data = balances_data.get("accounts", {})
         apy = balances_data.get("cash_sweep_apy", 0.0475)
 
-        # Precompute per-account CSP collateral from manual positions
-        account_csp_map = {}
+        # Precompute hedged collateral per account and portfolio-wide
+        acct_pos_map = {}
         for p in manual_positions:
-            if p.get("option_type") == "PUT" and p.get("contracts", 0) < 0:
-                c_strike = float(p.get("strike", 0.0))
-                c_qty = abs(int(p.get("contracts", 0)))
-                c_collat = c_strike * 100.0 * c_qty
-                total_csp_collateral += c_collat
-                p_acct = str(p.get("account", "UNKNOWN")).strip()
-                account_csp_map[p_acct] = account_csp_map.get(p_acct, 0.0) + c_collat
+            p_acct = str(p.get("account", "UNKNOWN")).strip()
+            acct_pos_map.setdefault(p_acct, []).append(p)
 
-        total_csp_collateral = round(total_csp_collateral, 2)
+        portfolio_collateral_info = calculate_hedged_put_collateral(manual_positions)
+        total_gross_collateral = portfolio_collateral_info["gross_collateral"]
+        total_csp_collateral = portfolio_collateral_info["effective_collateral"]
+        total_hedged_relief = portfolio_collateral_info["hedged_relief"]
+        portfolio_hedged_details = portfolio_collateral_info["hedged_details"]
+
         utilization_pct = round((total_csp_collateral / total_trading_cash) * 100.0, 1) if total_trading_cash > 0 else 0.0
         dry_powder_remaining = round(max(0.0, total_trading_cash - total_csp_collateral), 2)
         safety_status = "SAFE" if utilization_pct < 40.0 else ("MODERATE" if utilization_pct <= 60.0 else "OVER_LEVERAGED")
 
         # Enrich each account with per-account safety radar metrics
         for acct_key, acct_info in list(accounts_data.items()):
-            acct_collat = 0.0
-            for p_acct, collat_val in account_csp_map.items():
+            acct_positions = []
+            for p_acct, p_list in acct_pos_map.items():
                 if p_acct.upper() == acct_key.upper() or p_acct.upper() == str(acct_info.get("account_number", "")).upper():
-                    acct_collat += collat_val
+                    acct_positions.extend(p_list)
+
+            acct_collat_info = calculate_hedged_put_collateral(acct_positions)
+            acct_gross_collat = acct_collat_info["gross_collateral"]
+            acct_eff_collat = acct_collat_info["effective_collateral"]
+            acct_relief = acct_collat_info["hedged_relief"]
+            acct_details = acct_collat_info["hedged_details"]
 
             acct_net_cash = float(acct_info.get("net_cash", 0.0))
             acct_gross_cash = float(acct_info.get("gross_cash", 0.0))
-            acct_util = round((acct_collat / acct_net_cash) * 100.0, 1) if acct_net_cash > 0 else (100.0 if acct_collat > 0 else 0.0)
-            acct_dry_powder = round(max(0.0, acct_net_cash - acct_collat), 2)
+            acct_util = round((acct_eff_collat / acct_net_cash) * 100.0, 1) if acct_net_cash > 0 else (100.0 if acct_eff_collat > 0 else 0.0)
+            acct_dry_powder = round(max(0.0, acct_net_cash - acct_eff_collat), 2)
             acct_status = "SAFE" if acct_util < 40.0 else ("MODERATE" if acct_util <= 60.0 else "OVER_LEVERAGED")
             acct_ann_yield = round(acct_net_cash * apy, 2)
             acct_mo_yield = round(acct_ann_yield / 12.0, 2)
 
-            acct_info["csp_collateral"] = round(acct_collat, 2)
+            acct_info["gross_csp_collateral"] = acct_gross_collat
+            acct_info["csp_collateral"] = acct_eff_collat
+            acct_info["hedged_relief"] = acct_relief
+            acct_info["hedged_details"] = acct_details
             acct_info["dry_powder_remaining"] = acct_dry_powder
             acct_info["utilization_pct"] = acct_util
             acct_info["safety_status"] = acct_status
@@ -2116,6 +2214,9 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
         cash_safety_summary = {
             "total_trading_net_cash": total_trading_cash,
             "total_csp_collateral": total_csp_collateral,
+            "total_gross_collateral": total_gross_collateral,
+            "total_hedged_relief": total_hedged_relief,
+            "hedged_details": portfolio_hedged_details,
             "dry_powder_remaining": dry_powder_remaining,
             "utilization_pct": utilization_pct,
             "safety_status": safety_status,
