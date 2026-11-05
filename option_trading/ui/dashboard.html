@@ -1250,7 +1250,47 @@
 
     </div>
 
-    
+      <!-- DELTA-NEUTRAL 4-LEG IRON CONDOR ENGINE (INDEX ETFS ONLY: SPY, QQQ, XSP) -->
+      <div class="bg-[#090d16] border-2 border-indigo-500 rounded-xl p-5 space-y-4 shadow-xl">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 pb-3">
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="text-2xl">🦅</span>
+              <h2 class="text-lg md:text-xl font-black text-indigo-300">
+                Delta-Neutral 4-Leg Iron Condors (Index ETFs Only)
+              </h2>
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-black bg-indigo-500 text-white">SPY &bull; QQQ &bull; XSP</span>
+            </div>
+            <p class="text-xs md:text-sm font-bold text-slate-300 mt-1">
+              Pure sideways market-neutral theta engine. <span class="text-yellow-300 font-black">Double Credit</span> collected from Put Wing + Call Wing with <span class="text-emerald-300 font-black">One-Sided Collateral</span>. (Excluded: 3x leveraged ETFs and volatile single stocks to prevent breakout blowouts).
+            </p>
+          </div>
+          <div class="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-indigo-400">
+            <span class="text-xs font-black text-emerald-400">🛡️ CBOE Margin Rule: 1-Sided Risk</span>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs md:text-sm">
+            <thead class="bg-slate-900/90 text-slate-300 uppercase font-black text-[11px] tracking-wider border-b-2 border-slate-700">
+              <tr>
+                <th class="py-2.5 px-3">Asset</th>
+                <th class="py-2.5 px-3">Regime</th>
+                <th class="py-2.5 px-3">Expiration</th>
+                <th class="py-2.5 px-3">4-Leg Wings (Put / Call)</th>
+                <th class="py-2.5 px-3">Safe Range (Cone)</th>
+                <th class="py-2.5 px-3">Net Credit</th>
+                <th class="py-2.5 px-3">Max Risk (1-Side)</th>
+                <th class="py-2.5 px-3">ROR &amp; POP</th>
+                <th class="py-2.5 px-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="ironCondorTableBody" class="divide-y-2 divide-slate-700 font-mono">
+              <tr><td colspan="9" class="py-4 text-center text-slate-400">Loading Iron Condor recommendations...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
     </div> <!-- Close panel-radar -->
 
@@ -3370,6 +3410,7 @@
     }
 
     let latestSpreadRecommendations = null;
+    let latestIronCondorRecommendations = null;
 
     function renderSpreadSection() {
 
@@ -3552,6 +3593,71 @@
 
       }).join('');
 
+    }
+
+    function renderIronCondorSection() {
+      const tbody = document.getElementById('ironCondorTableBody');
+      if (!tbody) return;
+
+      const raw = latestIronCondorRecommendations || [];
+      if (raw.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="py-6 text-center text-slate-400 font-bold">No Iron Condor recommendations available yet.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = raw.map(c => {
+        const rowCls = c.is_qualified ? 'bg-indigo-950/40 border-2 border-indigo-500' : 'hover:bg-slate-800/50';
+        const badge = c.is_qualified
+          ? '<span class="px-3 py-1 rounded-full text-xs font-black bg-indigo-500 text-white border border-white">QUALIFIED CONDOR</span>'
+          : `<span class="px-2.5 py-1 rounded-lg bg-slate-700 text-yellow-300 font-black text-xs">${c.status || 'MONITOR'}</span>`;
+        const expFormatted = formatExpDate(c.expiration, c.target_dte);
+
+        return `
+          <tr class="${rowCls}">
+            <td class="py-2.5 px-3">
+              <div class="text-base font-black text-white">${c.symbol}</div>
+              <div class="text-yellow-300 font-mono text-xs font-bold">$${c.spot.toFixed(2)}</div>
+              <div class="text-[10px] text-slate-400 truncate max-w-xs">${c.name || ''}</div>
+            </td>
+            <td class="py-2.5 px-3 text-xs font-mono">
+              <div class="text-slate-200">IVR: <span class="font-bold text-emerald-300">${c.iv_rank.toFixed(1)}%</span></div>
+              <div class="text-slate-200">RSI: <span class="font-bold text-yellow-300">${c.rsi_14.toFixed(1)}</span></div>
+              <div class="text-[10px] text-indigo-300 font-bold">DELTA-NEUTRAL</div>
+            </td>
+            <td class="py-4 px-3 text-xs font-mono text-cyan-300 font-bold whitespace-nowrap">
+              📅 ${expFormatted}
+            </td>
+            <td class="py-2.5 px-3 text-xs font-mono">
+              <div class="text-emerald-400 font-bold">Put Wing: ${c.put_wing} (+$${c.put_credit.toFixed(2)})</div>
+              <div class="text-rose-400 font-bold">Call Wing: ${c.call_wing} (+$${c.call_credit.toFixed(2)})</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">$5.00 Standard Wings</div>
+            </td>
+            <td class="py-2.5 px-3 font-mono text-xs">
+              <div class="text-cyan-300 font-black text-sm">$${c.breakeven_low.toFixed(2)} &lt; Spot &lt; $${c.breakeven_high.toFixed(2)}</div>
+              <div class="text-emerald-300 text-[11px] mt-0.5">-${c.downside_buffer_pct.toFixed(1)}% &bull; +${c.upside_buffer_pct.toFixed(1)}% (${c.safe_channel_pct.toFixed(1)}% Total Channel)</div>
+            </td>
+            <td class="py-2.5 px-3 font-mono font-black text-base text-emerald-300">
+              +$${c.net_credit.toFixed(2)}
+              <div class="text-xs text-yellow-300 font-bold">+$${c.max_profit.toFixed(0)} Total</div>
+            </td>
+            <td class="py-2.5 px-3 font-mono font-black text-sm text-rose-400">
+              -$${c.max_risk.toFixed(0)}
+              <div class="text-[10px] text-slate-400 font-normal">1-Sided Collateral</div>
+            </td>
+            <td class="py-2.5 px-3 font-mono">
+              <div class="text-yellow-300 font-black text-base">${c.roc.toFixed(1)}% <span class="text-xs text-slate-400">(${c.annualized_roc.toFixed(0)}% ann)</span></div>
+              <div class="text-emerald-400 text-xs font-bold">POP: ${c.pop.toFixed(1)}%</div>
+            </td>
+            <td class="py-2.5 px-3 text-right">
+              <div class="mb-1">${badge}</div>
+              <div class="text-xs text-slate-300 font-sans font-bold max-w-xs text-right mb-1">${c.directive}</div>
+              <button onclick='openTradeModal({ symbol: "${c.symbol}", strategy_type: "IRON_CONDOR", structure: "${c.trade_action.replace(/"/g, '&quot;')}", expiration: "${c.expiration}", target_dte: ${c.target_dte}, price: ${c.net_credit}, collateral: ${c.max_risk}, max_profit: ${c.max_profit}, max_risk: ${c.max_risk}, legs: ${JSON.stringify(c.legs).replace(/"/g, '&quot;')} })' class="px-3 py-1 bg-indigo-500 hover:bg-indigo-400 text-white font-black text-xs rounded-lg shadow transition whitespace-nowrap">
+                ⚡ Paper Trade
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
     }
 
     function toggleTreeGroup(key) {
@@ -4948,19 +5054,21 @@
       if (data.ticker_count) document.getElementById('statTickersCount').innerText = `${data.ticker_count} Assets`;
 
       if (data.spread_opportunities !== undefined) {
-
         const spreadCountEl = document.getElementById('statSpreadCount');
-
-        if (spreadCountEl) spreadCountEl.innerText = `${data.spread_opportunities} Qualified`;
-
+        const spreadSubEl = document.getElementById('statSpreadSub');
+        const icCount = data.iron_condor_opportunities || 0;
+        if (spreadCountEl) spreadCountEl.innerText = `${data.spread_opportunities + icCount} Qualified`;
+        if (spreadSubEl) spreadSubEl.innerText = `${data.spread_opportunities} Spreads + ${icCount} Condors`;
       }
 
       if (data.spread_recommendations) {
-
         latestSpreadRecommendations = data.spread_recommendations;
-
         renderSpreadSection();
+      }
 
+      if (data.iron_condor_recommendations) {
+        latestIronCondorRecommendations = data.iron_condor_recommendations;
+        renderIronCondorSection();
       }
 
       if (data.wheel_opportunities !== undefined) document.getElementById('statWheelCount').innerText = `${data.wheel_opportunities} Triggered`;

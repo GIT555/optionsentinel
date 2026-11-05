@@ -986,6 +986,149 @@ class StrategyScanner:
         spreads.sort(key=lambda s: (not s["is_qualified"], -s["roc"]))
         return spreads
 
+    def generate_iron_condor_matrix(self) -> List[Dict[str, Any]]:
+        """
+        Generates Delta-Neutral 4-Leg Iron Condors strictly on premier broad market index ETFs
+        (SPY, QQQ, XSP) with high liquidity and mean-reverting behavior.
+        Excludes 3x leveraged ETFs and single-stock volatile names to prevent gap-risk blowouts.
+        """
+        TARGET_INDEX_ETFS = ["SPY", "QQQ", "XSP"]
+        condors: List[Dict[str, Any]] = []
+
+        for sym in TARGET_INDEX_ETFS:
+            meta = WATCHLIST_MATRIX.get(sym)
+            snap = self.snapshots.get(sym)
+            if not snap or not meta:
+                continue
+
+            spot = snap.spot
+            iv = max(0.10, snap.iv_current)
+            ivr = snap.iv_rank
+            rsi = snap.rsi_14
+
+            target_dte = 35
+            t = target_dte / 365.0
+            move_1sd = spot * iv * math.sqrt(t)
+
+            chain = self.market_client.get_live_option_chain(sym, 28, 55)
+            if not chain:
+                continue
+
+            width = 5.0
+            _exp = min(chain, key=lambda c: abs(c.dte - target_dte)).expiration
+            candidates = [c for c in chain if c.expiration == _exp]
+            if not candidates:
+                continue
+            dte_val = min(candidates, key=lambda c: abs(c.dte - target_dte)).dte
+
+            puts = [c for c in candidates if c.option_type == "PUT"]
+            calls = [c for c in candidates if c.option_type == "CALL"]
+
+            target_short_put = spot - move_1sd * 0.85
+            target_long_put = target_short_put - width
+            target_short_call = spot + move_1sd * 0.85
+            target_long_call = target_short_call + width
+
+            otm_puts = [c for c in puts if c.strike < spot] or puts
+            short_put_c = min(otm_puts, key=lambda c: abs(c.strike - target_short_put))
+            valid_long_puts = [c for c in puts if c.strike < short_put_c.strike]
+            long_put_c = min(valid_long_puts, key=lambda c: abs(c.strike - target_long_put)) if valid_long_puts else None
+
+            otm_calls = [c for c in calls if c.strike > spot] or calls
+            short_call_c = min(otm_calls, key=lambda c: abs(c.strike - target_short_call))
+            valid_long_calls = [c for c in calls if c.strike > short_call_c.strike]
+            long_call_c = min(valid_long_calls, key=lambda c: abs(c.strike - target_long_call)) if valid_long_calls else None
+
+            if not (short_put_c and long_put_c and short_call_c and long_call_c):
+                continue
+
+            sp_k = short_put_c.strike
+            lp_k = long_put_c.strike
+            sc_k = short_call_c.strike
+            lc_k = long_call_c.strike
+
+            put_w = sp_k - lp_k
+            call_w = lc_k - sc_k
+            max_w = max(put_w, call_w)
+            if max_w <= 0:
+                continue
+
+            sp_mid = short_put_c.mid if short_put_c.mid > 0 else round(self.math.black_scholes_price(spot, sp_k, dte_val, iv, 0.045, is_call=False), 2)
+            lp_mid = long_put_c.mid if long_put_c.mid > 0 else round(self.math.black_scholes_price(spot, lp_k, dte_val, iv, 0.045, is_call=False), 2)
+            sc_mid = short_call_c.mid if short_call_c.mid > 0 else round(self.math.black_scholes_price(spot, sc_k, dte_val, iv, 0.045, is_call=True), 2)
+            lc_mid = long_call_c.mid if long_call_c.mid > 0 else round(self.math.black_scholes_price(spot, lc_k, dte_val, iv, 0.045, is_call=True), 2)
+
+            put_credit = max(0.05, round(sp_mid - lp_mid, 2))
+            call_credit = max(0.05, round(sc_mid - lc_mid, 2))
+            total_credit = round(put_credit + call_credit, 2)
+
+            max_risk = max(1.0, round((max_w - total_credit) * 100.0, 2))
+            max_profit = round(total_credit * 100.0, 2)
+            roc = round((max_profit / max_risk) * 100.0, 1) if max_risk > 0 else 0.0
+            ann_roc = round(roc * (365.0 / dte_val), 1) if dte_val > 0 else 0.0
+
+            sp_delta = abs(short_put_c.delta_approx) if short_put_c.delta_approx else 0.16
+            sc_delta = abs(short_call_c.delta_approx) if short_call_c.delta_approx else 0.16
+            pop = round(max(50.0, min(92.0, (1.0 - (sp_delta + sc_delta)) * 100.0)), 1)
+
+            down_buf = round((spot - sp_k) / spot * 100.0, 1)
+            up_buf = round((sc_k - spot) / spot * 100.0, 1)
+            safe_channel_pct = round(down_buf + up_buf, 1)
+
+            be_low = round(sp_k - total_credit, 2)
+            be_high = round(sc_k + total_credit, 2)
+            exit_target = round(total_credit * 0.50, 2)
+
+            is_qualified = (ivr >= 25.0 and roc >= 20.0 and down_buf >= 3.0 and up_buf >= 3.0)
+            status_text = "QUALIFIED CONDOR" if is_qualified else ("LOW ROR" if roc < 20.0 else f"MONITOR (IVR {ivr:.0f}%)")
+
+            trade_action = f"BUY 1x ${lp_k:g}P / SELL 1x ${sp_k:g}P || SELL 1x ${sc_k:g}C / BUY 1x ${lc_k:g}C"
+            legs = [
+                {"option_type": "PUT", "action": "BUY", "strike": lp_k, "contract": long_put_c.contract_symbol, "mid": lp_mid},
+                {"option_type": "PUT", "action": "SELL", "strike": sp_k, "contract": short_put_c.contract_symbol, "mid": sp_mid},
+                {"option_type": "CALL", "action": "SELL", "strike": sc_k, "contract": short_call_c.contract_symbol, "mid": sc_mid},
+                {"option_type": "CALL", "action": "BUY", "strike": lc_k, "contract": long_call_c.contract_symbol, "mid": lc_mid},
+            ]
+
+            condors.append({
+                "symbol": sym,
+                "name": meta.name,
+                "spot": spot,
+                "iv": round(iv * 100.0, 1),
+                "iv_rank": round(ivr, 1),
+                "rsi_14": round(rsi, 1),
+                "target_dte": dte_val,
+                "expiration": _exp,
+                "put_wing": f"${lp_k:g}P / ${sp_k:g}P",
+                "call_wing": f"${sc_k:g}C / ${lc_k:g}C",
+                "short_put_strike": sp_k,
+                "long_put_strike": lp_k,
+                "short_call_strike": sc_k,
+                "long_call_strike": lc_k,
+                "put_credit": put_credit,
+                "call_credit": call_credit,
+                "net_credit": total_credit,
+                "max_risk": max_risk,
+                "max_profit": max_profit,
+                "roc": roc,
+                "annualized_roc": ann_roc,
+                "pop": pop,
+                "downside_buffer_pct": down_buf,
+                "upside_buffer_pct": up_buf,
+                "safe_channel_pct": safe_channel_pct,
+                "breakeven_low": be_low,
+                "breakeven_high": be_high,
+                "exit_target": exit_target,
+                "trade_action": trade_action,
+                "legs": legs,
+                "is_qualified": is_qualified,
+                "status": status_text,
+                "directive": f"Iron Condor exp {_exp} ({dte_val} DTE) @ +${total_credit:.2f} credit | Exit @ ${exit_target:.2f} (50% target) or 14 DTE",
+            })
+
+        condors.sort(key=lambda c: (not c["is_qualified"], -c["roc"]))
+        return condors
+
 
 def calculate_hedged_put_collateral(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -1846,6 +1989,8 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_response(self.scanner.generate_leap_put_matrix(all_tickers=True))
         elif path == "/api/spreads":
             self._send_json_response(self.scanner.generate_spread_matrix(all_tickers=True))
+        elif path == "/api/iron_condors":
+            self._send_json_response(self.scanner.generate_iron_condor_matrix())
         elif path == "/api/alerts":
             self._send_json_response(self.sentinel.audit_manual_positions(emit_stderr=False))
         elif path == "/api/positions":
@@ -2151,6 +2296,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         leap_puts = self.scanner.generate_leap_put_matrix(all_tickers=True)
         spreads = self.scanner.generate_spread_matrix(all_tickers=True)
+        iron_condors = self.scanner.generate_iron_condor_matrix()
         manual_positions = self.sentinel.evaluate_all_manual_positions()
         equity_exposure = self.sentinel.evaluate_equity_and_exposure(manual_positions)
         portfolio_beta = self.sentinel.get_portfolio_beta_summary(equity_exposure)
@@ -2267,6 +2413,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "leap_opportunities": sum(1 for r in leap if r.get("is_qualified")),
             "leap_put_opportunities": sum(1 for p in leap_puts if p.get("is_qualified")),
             "spread_opportunities": sum(1 for s in spreads if s.get("is_qualified")),
+            "iron_condor_opportunities": sum(1 for c in iron_condors if c.get("is_qualified")),
             "gamma_danger_count": len(alerts),
             "roll_radar_count": sum(1 for p in manual_positions if p.get("roll_radar_21")),
             "manual_positions_count": len(manual_positions),
@@ -2276,6 +2423,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "leap_recommendations": leap,
             "leap_put_recommendations": leap_puts,
             "spread_recommendations": spreads,
+            "iron_condor_recommendations": iron_condors,
             "leveraged_etfs_guidance": leveraged_etfs,
             "gamma_alerts": alerts,
             "manual_positions": manual_positions,

@@ -152,7 +152,7 @@ class PaperTradingEngine:
                 total_collateral += collateral
 
                 # Calculate unrealized P&L
-                if "CREDIT" in strat or strat in ("CASH_SECURED_PUT", "COVERED_CALL"):
+                if "CREDIT" in strat or strat in ("CASH_SECURED_PUT", "COVERED_CALL", "IRON_CONDOR"):
                     # Sold for entry_pr, buy back at curr_mark
                     pnl = (entry_pr - curr_mark) * qty * 100.0
                     pos_val = -curr_mark * qty * 100.0
@@ -209,7 +209,7 @@ class PaperTradingEngine:
                 qty = int(pos["contracts"])
                 strat = pos["strategy_type"]
 
-                is_credit = "CREDIT" in strat or strat in ("CASH_SECURED_PUT", "COVERED_CALL")
+                is_credit = "CREDIT" in strat or strat in ("CASH_SECURED_PUT", "COVERED_CALL", "IRON_CONDOR")
                 if is_credit:
                     unrealized = (entry_p - curr_p) * qty * 100.0
                     pct = ((entry_p - curr_p) / entry_p * 100.0) if entry_p > 0 else 0.0
@@ -287,7 +287,7 @@ class PaperTradingEngine:
             current_locked = sum(float(r["collateral_required"]) for r in open_rows)
             available_bp = cash - current_locked
 
-            is_credit = "CREDIT" in strat or strat in ("CASH_SECURED_PUT", "COVERED_CALL")
+            is_credit = "CREDIT" in strat or strat in ("CASH_SECURED_PUT", "COVERED_CALL", "IRON_CONDOR")
 
             # Check collateral requirements
             if is_credit and collateral > available_bp:
@@ -392,7 +392,7 @@ class PaperTradingEngine:
             qty = int(pos["contracts"])
             strat = pos["strategy_type"]
             sym = pos["symbol"]
-            is_credit = "CREDIT" in strat or strat in ("CASH_SECURED_PUT", "COVERED_CALL")
+            is_credit = "CREDIT" in strat or strat in ("CASH_SECURED_PUT", "COVERED_CALL", "IRON_CONDOR")
 
             if is_credit:
                 pnl = (entry_p - mark) * qty * 100.0
