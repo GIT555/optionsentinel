@@ -37,6 +37,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from live_market_data import LiveMarketClient, LiveOptionContract, LiveTickerSnapshot, TICKER_SYMBOL_MAP
 from paper_trading_engine import PaperTradingEngine, PaperAccountSummary
 from schwab_trader import SchwabTraderClient, format_schwab_occ_symbol
+from option_trading.core.watchlist import load_watchlist, save_watchlist
+from option_trading.core.stock_strategy import evaluate_stock_buy_signal
 
 
 def parse_occ_expiration(contract_symbol: str) -> Optional[str]:
@@ -147,21 +149,7 @@ class TickerMetadata:
     beta: float = 1.0
 
 
-WATCHLIST_MATRIX: Dict[str, TickerMetadata] = {
-    "SPY": TickerMetadata("SPY", "SPDR S&P 500 ETF Trust", AssetCategory.CORE_EQUITY, False, False, 1.0, 1.00),
-    "QQQ": TickerMetadata("QQQ", "Invesco QQQ Trust (Nasdaq-100)", AssetCategory.CORE_EQUITY, False, False, 1.0, 1.18),
-    "XSP": TickerMetadata("XSP", "Mini-S&P 500 Index Options", AssetCategory.CORE_EQUITY, False, True, 1.0, 1.00),
-    "QQQM": TickerMetadata("QQQM", "Invesco NASDAQ 100 ETF", AssetCategory.CORE_EQUITY, False, False, 1.0, 1.18),
-    "SPYM": TickerMetadata("SPYM", "SPDR Portfolio S&P 500 ETF", AssetCategory.CORE_EQUITY, False, False, 0.5, 1.00),
-    "TQQQ": TickerMetadata("TQQQ", "ProShares UltraPro QQQ (3x)", AssetCategory.LEVERAGED_EQUITY, True, False, 1.0, 3.50),
-    "SOXL": TickerMetadata("SOXL", "Direxion Daily Semiconductor Bull 3X", AssetCategory.LEVERAGED_EQUITY, True, False, 0.5, 3.80),
-    "SPXL": TickerMetadata("SPXL", "Direxion Daily S&P 500 Bull 3X", AssetCategory.LEVERAGED_EQUITY, True, False, 1.0, 3.00),
-    "GLD": TickerMetadata("GLD", "SPDR Gold Trust", AssetCategory.COMMODITY, False, False, 1.0, 0.08),
-    "SLV": TickerMetadata("SLV", "iShares Silver Trust", AssetCategory.COMMODITY, False, False, 0.5, 0.35),
-    "IAU": TickerMetadata("IAU", "iShares Gold Trust", AssetCategory.COMMODITY, False, False, 0.5, 0.08),
-    "IBIT": TickerMetadata("IBIT", "iShares Bitcoin Trust ETF", AssetCategory.CRYPTO_BONDS, False, False, 0.5, 1.75),
-    "TLT": TickerMetadata("TLT", "iShares 20+ Year Treasury Bond", AssetCategory.CRYPTO_BONDS, False, False, 0.5, -0.25),
-}
+WATCHLIST_MATRIX: Dict[str, TickerMetadata] = load_watchlist()
 
 
 # ==============================================================================
@@ -185,6 +173,9 @@ class TickerScanResult:
     disqualification_reason: Optional[str] = None
     earnings_date: Optional[str] = None
     days_to_earnings: Optional[int] = None
+    stock_buy_signal: str = "HOLD"            # BUY_TRANCHE_1, BUY_TRANCHE_2, HOLD, TRIM_OVERBOUGHT
+    stock_buy_tranche: str = "Hold / Monitor"
+    stock_buy_rationale: str = ""
 
 
 @dataclass
@@ -281,6 +272,65 @@ class StrategyScanner:
         with self._summary_lock:
             self._summary_cache = None
 
+    def add_ticker(
+        self,
+        symbol: str,
+        name: str = "",
+        category: str = "CORE_EQUITY",
+        is_leveraged: bool = False,
+        beta: float = 1.0,
+        strike_step: float = 1.0,
+    ) -> bool:
+        """Dynamically adds a ticker to the watchlist and fetches snapshot."""
+        sym = symbol.upper().strip()
+        if not sym:
+            return False
+
+        if not name:
+            name = f"{sym} Equity / ETF"
+
+        cat_enum = AssetCategory.CORE_EQUITY
+        for c in AssetCategory:
+            if c.name == category or c.value == category:
+                cat_enum = c
+                break
+
+        meta = TickerMetadata(
+            symbol=sym,
+            name=name,
+            category=cat_enum,
+            is_leveraged=is_leveraged,
+            is_tax_advantaged=False,
+            strike_step=strike_step,
+            beta=beta,
+        )
+        WATCHLIST_MATRIX[sym] = meta
+        save_watchlist(WATCHLIST_MATRIX)
+
+        try:
+            new_snap = self.market_client.get_all_snapshots_parallel([sym])
+            self.snapshots.update(new_snap)
+            self.market_client.preload_chains_parallel([sym])
+        except Exception as e:
+            print(f"[SCANNER] Failed to fetch live data for {sym}: {e}", file=sys.stderr)
+
+        with self._summary_lock:
+            self._summary_cache = None
+        return True
+
+    def delete_ticker(self, symbol: str) -> bool:
+        """Deletes a ticker from the watchlist and saves to disk."""
+        sym = symbol.upper().strip()
+        if sym in WATCHLIST_MATRIX:
+            del WATCHLIST_MATRIX[sym]
+            save_watchlist(WATCHLIST_MATRIX)
+            if sym in self.snapshots:
+                del self.snapshots[sym]
+            with self._summary_lock:
+                self._summary_cache = None
+            return True
+        return False
+
     def scan_ticker_universe(self) -> List[TickerScanResult]:
         results: List[TickerScanResult] = []
 
@@ -310,6 +360,11 @@ class StrategyScanner:
             else:
                 leap_qualified = True
 
+            # Direct Stock Buying Algorithm
+            buy_sig, buy_tranche, buy_rationale = evaluate_stock_buy_signal(
+                sym, spot, rsi, ivr, meta.is_leveraged
+            )
+
             results.append(
                 TickerScanResult(
                     symbol=sym,
@@ -327,6 +382,9 @@ class StrategyScanner:
                     disqualification_reason=leap_disqualifier,
                     earnings_date=snap.earnings_date,
                     days_to_earnings=snap.days_to_earnings,
+                    stock_buy_signal=buy_sig,
+                    stock_buy_tranche=buy_tranche,
+                    stock_buy_rationale=buy_rationale,
                 )
             )
         return results
@@ -1855,6 +1913,33 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "message": "Paste the https://127.0.0.1/?code=... redirect URL from Schwab login.",
                     "schwab_status": sc.get_status(),
                 })
+        elif path == "/api/watchlist/add":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+            symbol = body.get("symbol", "").upper().strip()
+            name = body.get("name", "").strip()
+            is_leveraged = bool(body.get("is_leveraged", False))
+            category = body.get("category", "LEVERAGED_EQUITY" if is_leveraged else "CORE_EQUITY")
+            beta = float(body.get("beta", 3.0 if is_leveraged else 1.0))
+            strike_step = float(body.get("strike_step", 0.5 if is_leveraged else 1.0))
+            success = self.scanner.add_ticker(
+                symbol, name=name, category=category, is_leveraged=is_leveraged, beta=beta, strike_step=strike_step
+            )
+            self._send_json_response({
+                "status": "success" if success else "error",
+                "symbol": symbol,
+                "watchlist_count": len(WATCHLIST_MATRIX),
+            })
+        elif path == "/api/watchlist/delete":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+            symbol = body.get("symbol", "").upper().strip()
+            success = self.scanner.delete_ticker(symbol)
+            self._send_json_response({
+                "status": "success" if success else "error",
+                "symbol": symbol,
+                "watchlist_count": len(WATCHLIST_MATRIX),
+            })
         else:
             self.send_error(404, "Unknown POST route")
 

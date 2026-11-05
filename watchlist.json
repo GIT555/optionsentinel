@@ -1,0 +1,119 @@
+[
+  {
+    "symbol": "SPY",
+    "name": "SPDR S&P 500 ETF Trust",
+    "category": "CORE_EQUITY",
+    "is_leveraged": false,
+    "is_index": false,
+    "strike_step": 1.0,
+    "beta": 1.0
+  },
+  {
+    "symbol": "QQQ",
+    "name": "Invesco QQQ Trust (Nasdaq-100)",
+    "category": "CORE_EQUITY",
+    "is_leveraged": false,
+    "is_index": false,
+    "strike_step": 1.0,
+    "beta": 1.18
+  },
+  {
+    "symbol": "XSP",
+    "name": "Mini-S&P 500 Index Options",
+    "category": "CORE_EQUITY",
+    "is_leveraged": false,
+    "is_index": true,
+    "strike_step": 1.0,
+    "beta": 1.0
+  },
+  {
+    "symbol": "QQQM",
+    "name": "Invesco NASDAQ 100 ETF",
+    "category": "CORE_EQUITY",
+    "is_leveraged": false,
+    "is_index": false,
+    "strike_step": 1.0,
+    "beta": 1.18
+  },
+  {
+    "symbol": "SPYM",
+    "name": "SPDR Portfolio S&P 500 ETF",
+    "category": "CORE_EQUITY",
+    "is_leveraged": false,
+    "is_index": false,
+    "strike_step": 0.5,
+    "beta": 1.0
+  },
+  {
+    "symbol": "TQQQ",
+    "name": "ProShares UltraPro QQQ (3x)",
+    "category": "LEVERAGED_EQUITY",
+    "is_leveraged": true,
+    "is_index": false,
+    "strike_step": 1.0,
+    "beta": 3.5
+  },
+  {
+    "symbol": "SOXL",
+    "name": "Direxion Daily Semiconductor Bull 3X",
+    "category": "LEVERAGED_EQUITY",
+    "is_leveraged": true,
+    "is_index": false,
+    "strike_step": 0.5,
+    "beta": 3.8
+  },
+  {
+    "symbol": "SPXL",
+    "name": "Direxion Daily S&P 500 Bull 3X",
+    "category": "LEVERAGED_EQUITY",
+    "is_leveraged": true,
+    "is_index": false,
+    "strike_step": 1.0,
+    "beta": 3.0
+  },
+  {
+    "symbol": "GLD",
+    "name": "SPDR Gold Trust",
+    "category": "COMMODITY",
+    "is_leveraged": false,
+    "is_index": false,
+    "strike_step": 1.0,
+    "beta": 0.08
+  },
+  {
+    "symbol": "SLV",
+    "name": "iShares Silver Trust",
+    "category": "COMMODITY",
+    "is_leveraged": false,
+    "is_index": false,
+    "strike_step": 0.5,
+    "beta": 0.35
+  },
+  {
+    "symbol": "IAU",
+    "name": "iShares Gold Trust",
+    "category": "COMMODITY",
+    "is_leveraged": false,
+    "is_index": false,
+    "strike_step": 0.5,
+    "beta": 0.08
+  },
+  {
+    "symbol": "IBIT",
+    "name": "iShares Bitcoin Trust ETF",
+    "category": "CRYPTO_BONDS",
+    "is_leveraged": false,
+    "is_index": false,
+    "strike_step": 0.5,
+    "beta": 1.75
+  },
+  {
+    "symbol": "TLT",
+    "name": "iShares 20+ Year Treasury Bond",
+    "category": "CRYPTO_BONDS",
+    "is_leveraged": false,
+    "is_index": false,
+    "strike_step": 0.5,
+    "beta": -0.25
+  }
+]

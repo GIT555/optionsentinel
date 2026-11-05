@@ -196,33 +196,144 @@
       </div>
     </div>
 
-    <!-- Navigation Tabs -->
-    <div class="flex space-x-2 border-b-2 border-slate-700 pb-2.5 overflow-x-auto text-xs md:text-sm font-black scrollbar-thin">
-      <button onclick="showTab('wheel')" id="tabBtn-wheel" class="px-3.5 py-2 rounded-xl bg-emerald-500 text-black border-2 border-white shadow-lg transition whitespace-nowrap flex-shrink-0">
-        1. The Wheel (CSP)
+    <!-- 4 CORE COMMAND HUBS NAVIGATION -->
+    <div class="flex space-x-2 md:space-x-3 border-b-2 border-slate-700 pb-3 overflow-x-auto text-xs md:text-sm font-black scrollbar-thin">
+      <button onclick="showTab('scanner')" id="tabBtn-scanner" class="px-4 py-2.5 rounded-xl bg-cyan-500 text-black border-2 border-white shadow-xl transition whitespace-nowrap flex-shrink-0 flex items-center space-x-2">
+        <span>📊 1. Watchlist &amp; Scanner</span>
       </button>
-      <button onclick="showTab('leap')" id="tabBtn-leap" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0">
-        2. LEAP &amp; PMCC
+      <button onclick="showTab('radar')" id="tabBtn-radar" class="px-4 py-2.5 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0 flex items-center space-x-2">
+        <span>⚡ 2. Strategy Radar</span>
       </button>
-      <button onclick="showTab('leveraged')" id="tabBtn-leveraged" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-amber-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0">
-        3. 3x Leveraged ETFs
+      <button onclick="showTab('portfolio')" id="tabBtn-portfolio" class="px-4 py-2.5 rounded-xl bg-[#0e172a] text-yellow-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0 flex items-center space-x-2">
+        <span>💼 3. Portfolio &amp; Risk</span>
       </button>
-      <button onclick="showTab('telemetry')" id="tabBtn-telemetry" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-slate-200 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0">
-        4. Market Telemetry
-      </button>
-      <button onclick="showTab('positions')" id="tabBtn-positions" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-yellow-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0">
-        5. Holdings &amp; Net Delta
-      </button>
-      <button onclick="showTab('spreads')" id="tabBtn-spreads" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-indigo-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0">
-        6. Vertical Spreads
-      </button>
-      <button onclick="showTab('paper-trading')" id="tabBtn-paper-trading" class="px-3.5 py-2 rounded-xl bg-[#0e172a] text-emerald-300 hover:text-white border-2 border-emerald-500/80 transition whitespace-nowrap flex-shrink-0 shadow-lg">
-        7. 📈 Paper &amp; Orders
+      <button onclick="showTab('execution')" id="tabBtn-execution" class="px-4 py-2.5 rounded-xl bg-[#0e172a] text-emerald-300 hover:text-white border-2 border-slate-600 transition whitespace-nowrap flex-shrink-0 flex items-center space-x-2 shadow-lg">
+        <span>📈 4. Trade Execution</span>
       </button>
     </div>
 
+    <!-- ============================================================ -->
+    <!-- HUB 1: WATCHLIST & SCANNER + DIRECT STOCK ACCUMULATION       -->
+    <!-- ============================================================ -->
+    <div id="panel-scanner" class="bg-[#0e172a] border-2 border-cyan-500/60 rounded-2xl p-6 shadow-2xl space-y-6">
+      
+      <!-- Top Title and Dynamic Watchlist Add Bar -->
+      <div class="flex flex-wrap items-center justify-between gap-4 border-b-2 border-slate-700 pb-5">
+        <div>
+          <h2 class="text-xl md:text-2xl font-black text-white flex items-center space-x-2">
+            <span class="h-4 w-4 rounded-full bg-cyan-400 animate-pulse"></span>
+            <span>Watchlist &amp; Direct Stock Accumulation Scanner</span>
+          </h2>
+          <p class="text-xs md:text-sm font-bold text-slate-300 mt-1">
+            Real-time market telemetry, Dollar-Cost-Averaging (DCA) buy tranches, and dynamic ticker management.
+          </p>
+        </div>
+
+        <!-- Add Ticker Control Bar -->
+        <div class="flex flex-wrap items-center gap-2 bg-[#090d16] p-2.5 rounded-xl border border-cyan-500/50 shadow-lg">
+          <input id="newTickerSymbol" type="text" placeholder="Add Ticker (e.g. NVDA)" 
+                 class="px-3 py-1.5 bg-slate-900 border border-slate-600 rounded-lg text-white font-mono text-xs uppercase font-bold placeholder-slate-500 focus:outline-none focus:border-cyan-400 w-40"
+                 onkeydown="if(event.key==='Enter') addWatchlistTicker()" />
+          <label class="flex items-center space-x-1.5 text-xs font-bold text-amber-300 cursor-pointer pr-1">
+            <input id="newTickerLeveraged" type="checkbox" class="rounded bg-slate-900 border-slate-600 text-amber-500" />
+            <span>3x Lev</span>
+          </label>
+          <button id="btnAddTicker" onclick="addWatchlistTicker()" class="px-3.5 py-1.5 bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-black rounded-lg transition shadow">
+            ➕ Add Ticker
+          </button>
+        </div>
+      </div>
+
+      <!-- Institutional Direct Stock Buying Tranche Framework -->
+      <div class="bg-[#090d16] border border-cyan-900/80 rounded-xl p-4 shadow-md">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-black uppercase tracking-wider text-cyan-300 flex items-center space-x-1.5">
+            <span>💡 Institutional Direct Stock Buying &amp; Accumulation Guide</span>
+          </span>
+          <span class="text-xs text-slate-400 hidden md:inline">Zero Expiration Drag &bull; Disciplined DCA Allocation</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+          <div class="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-500/50">
+            <div class="font-black text-emerald-300">💰 Tranche 2 (50% Heavy DCA)</div>
+            <div class="text-slate-300 mt-0.5">RSI &lt; 30 (Capitulation / deep dip). Prime direct stock accumulation window. Zero option theta decay.</div>
+          </div>
+          <div class="p-2.5 rounded-lg bg-cyan-950/60 border border-cyan-500/50">
+            <div class="font-black text-cyan-300">🛒 Tranche 1 (33% Dip DCA)</div>
+            <div class="text-slate-300 mt-0.5">RSI &lt; 35 (Oversold pullback). Initiate 1st accumulation tranche before mean reversion.</div>
+          </div>
+          <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-700">
+            <div class="font-bold text-slate-300">⏸️ Hold Existing / Neutral</div>
+            <div class="text-slate-400 mt-0.5">35 &le; RSI &le; 65 (Trend continuation). Hold shares without chasing entries.</div>
+          </div>
+          <div class="p-2.5 rounded-lg bg-amber-950/60 border border-amber-500/50">
+            <div class="font-black text-amber-300">⚠️ 3x Leveraged ETFs Warning</div>
+            <div class="text-slate-300 mt-0.5">TQQQ, SOXL, SPXL suffer daily volatility decay. Only tactical bounce swings (3-5 days holding max).</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Telemetry Matrix Table -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm md:text-base border-collapse font-bold">
+          <thead>
+            <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase text-xs md:text-sm">
+              <th class="py-3 px-3">Symbol</th>
+              <th class="py-3 px-3">Category</th>
+              <th class="py-3 px-3">Live Spot</th>
+              <th class="py-3 px-3">30d Vol</th>
+              <th class="py-3 px-3">IV Rank</th>
+              <th class="py-3 px-3">6M IVP</th>
+              <th class="py-3 px-3">14D RSI</th>
+              <th class="py-3 px-3 text-cyan-300">Direct Stock Buy Tranche</th>
+              <th class="py-3 px-3 text-emerald-300">Options Radar</th>
+              <th class="py-3 px-3 text-center">Action</th>
+            </tr>
+          </thead>
+          <tbody id="telemetryTableBody" class="divide-y-2 divide-slate-700 font-mono">
+            <tr>
+              <td colspan="10" class="py-10 text-center text-slate-400 font-bold text-sm">
+                <span class="inline-block animate-pulse text-cyan-300 font-black text-base">⏳ Loading Live Telemetry Matrix...</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- HUB 2: STRATEGY RADAR (UNIFIED OPTIONS OPPORTUNITIES)         -->
+    <!-- ============================================================ -->
+    <div id="panel-radar" class="hidden space-y-6">
+      
+      <!-- Top Strategy Filter Pills -->
+      <div class="bg-[#0e172a] border-2 border-slate-700 rounded-2xl p-4 shadow-xl">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center space-x-2">
+            <span class="h-3.5 w-3.5 rounded-full bg-yellow-400"></span>
+            <span class="text-base md:text-lg font-black text-white">Strategy Filter:</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button onclick="filterRadar('all')" id="pillBtn-all" class="px-3.5 py-1.5 rounded-xl bg-white text-black font-black text-xs transition shadow">
+              🔥 All Opportunities
+            </button>
+            <button onclick="filterRadar('wheel')" id="pillBtn-wheel" class="px-3.5 py-1.5 rounded-xl bg-slate-800 text-emerald-300 hover:text-white font-bold text-xs border border-slate-600 transition">
+              🛡️ The Wheel (CSP)
+            </button>
+            <button onclick="filterRadar('leap')" id="pillBtn-leap" class="px-3.5 py-1.5 rounded-xl bg-slate-800 text-purple-300 hover:text-white font-bold text-xs border border-slate-600 transition">
+              🚀 LEAP &amp; PMCC
+            </button>
+            <button onclick="filterRadar('spreads')" id="pillBtn-spreads" class="px-3.5 py-1.5 rounded-xl bg-slate-800 text-indigo-300 hover:text-white font-bold text-xs border border-slate-600 transition">
+              📊 Vertical Spreads
+            </button>
+            <button onclick="filterRadar('leveraged')" id="pillBtn-leveraged" class="px-3.5 py-1.5 rounded-xl bg-slate-800 text-amber-300 hover:text-white font-bold text-xs border border-slate-600 transition">
+              ⚡ 3x Leveraged ETFs
+            </button>
+          </div>
+        </div>
+      </div>
+
     <!-- TAB 1: THE WHEEL CSP GUIDANCE (LARGE, HIGH CONTRAST) -->
-    <div id="panel-wheel" class="bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-4">
+    <div id="radar-wheel" class="bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
         <div>
           <h2 class="text-xl md:text-2xl font-black text-white flex items-center space-x-2">
@@ -266,7 +377,7 @@
     </div>
 
     <!-- TAB 2: LEAP REPLACEMENT & PMCC -->
-    <div id="panel-leap" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-4">
+    <div id="radar-leap" class="bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
         <div>
           <h2 class="text-xl md:text-2xl font-black text-white flex items-center space-x-2">
@@ -373,7 +484,7 @@
     </div>
 
     <!-- TAB 3: 3X TRIPLE-LEVERAGED ETFS STRATEGY GUIDE (TQQQ, SOXL, SPXL) -->
-    <div id="panel-leveraged" class="hidden bg-[#0e172a] border-2 border-amber-500 rounded-2xl p-6 shadow-xl space-y-6">
+    <div id="radar-leveraged" class="bg-[#0e172a] border-2 border-amber-500 rounded-2xl p-6 shadow-xl space-y-6">
       <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
         <div>
           <h2 class="text-xl md:text-2xl font-black text-amber-300 flex items-center space-x-2">
@@ -464,37 +575,92 @@
       </div>
     </div>
 
-    <!-- TAB 4: LIVE TELEMETRY MATRIX (13 TICKERS) -->
-    <div id="panel-telemetry" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-4">
-      <h2 class="text-xl md:text-2xl font-black text-white">Live 13-Ticker Telemetry Matrix</h2>
+    
+<!-- TAB 6: VERTICAL SPREADS (CALL OR PUT BASED ON MARKET CONDITION) -->
+    <div id="radar-spreads" class="bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-5 shadow-xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-3">
+        <div>
+          <h2 class="text-xl md:text-2xl font-black text-white flex items-center space-x-2">
+            <span class="h-3.5 w-3.5 rounded-full bg-indigo-400"></span>
+            <span>Vertical Spreads: Call or Put by Market Regime</span>
+          </h2>
+          <p class="text-xs md:text-sm font-bold text-slate-300 mt-1">
+            Quantitative engine: <span class="text-emerald-300 font-black">Bull Put Credit</span> (dips + high IV), <span class="text-rose-300 font-black">Bear Call Credit</span> (rallies + high IV), or <span class="text-cyan-300 font-black">Debit Spreads</span> (low IV momentum).
+          </p>
+        </div>
+        <div class="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-indigo-400">
+          <label for="spreadFilterSelect" class="text-xs font-black text-yellow-300 uppercase">Filter Strategy:</label>
+          <select id="spreadFilterSelect" onchange="renderSpreadSection()" class="bg-slate-950 border border-slate-600 rounded-lg px-2 py-1 text-xs text-indigo-300 font-black focus:outline-none">
+            <option value="ALL">All Strategies (13 Tickers)</option>
+            <option value="CREDIT">Credit Spreads Only (High IV / Income)</option>
+            <option value="DEBIT">Debit Spreads Only (Low IV / Directional)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Regime Strategy Guide (Collapsible to keep table visible on screen) -->
+      <details class="bg-[#090d16] border border-slate-700 rounded-xl p-3 text-xs cursor-pointer group">
+        <summary class="font-bold text-indigo-300 flex items-center justify-between select-none">
+          <span class="flex items-center space-x-2">
+            <span>📘 Strategy Guide: High IV (Credit Spreads) vs Low IV (Debit Spreads) Rules</span>
+          </span>
+          <span class="text-slate-400 group-open:rotate-180 transition-transform text-xs">▼ Click to Expand</span>
+        </summary>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-800">
+          <div class="bg-slate-900/80 border border-emerald-500/50 rounded-lg p-3 space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="font-black text-emerald-300">🟢 High IV Regime (IV Rank &ge; 35%): Sell Credit Spreads</span>
+              <span class="px-2 py-0.5 rounded bg-emerald-500 text-black font-black text-[10px]">POSITIVE THETA</span>
+            </div>
+            <p class="text-[11px] text-slate-300">Options are expensive. Sell near-the-money leg and buy cheaper OTM wing for strict defined risk.</p>
+            <div class="text-[11px] font-mono text-slate-200">
+              <div>• <strong>RSI &le; 50 (Dip):</strong> <span class="text-emerald-300 font-bold">Bull Put Credit Spread</span> (~0.25&Delta; / ~0.15&Delta;)</div>
+              <div>• <strong>RSI &gt; 50 (Rally):</strong> <span class="text-rose-300 font-bold">Bear Call Credit Spread</span> (~0.25&Delta; / ~0.15&Delta;)</div>
+            </div>
+          </div>
+          <div class="bg-slate-900/80 border border-cyan-500/50 rounded-lg p-3 space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="font-black text-cyan-300">🔵 Low IV Regime (IV Rank &lt; 35%): Buy Debit Spreads</span>
+              <span class="px-2 py-0.5 rounded bg-cyan-500 text-black font-black text-[10px]">CHEAP VOLATILITY</span>
+            </div>
+            <p class="text-[11px] text-slate-300">Options are cheap. Buy directional leg and sell further OTM wing to finance position.</p>
+            <div class="text-[11px] font-mono text-slate-200">
+              <div>• <strong>RSI &le; 50:</strong> <span class="text-cyan-300 font-bold">Bull Call Debit Spread</span> (BTO ATM/ITM + STO OTM)</div>
+              <div>• <strong>RSI &gt; 50:</strong> <span class="text-amber-300 font-bold">Bear Put Debit Spread</span> (BTO ATM/ITM + STO OTM)</div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- Dynamic Spreads Table -->
       <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm md:text-base border-collapse font-bold">
+        <table class="w-full text-left text-xs md:text-sm border-collapse font-bold">
           <thead>
-            <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase">
-              <th class="py-3 px-3">Symbol</th>
-              <th class="py-3 px-3">Category</th>
-              <th class="py-3 px-3">Live Spot</th>
-              <th class="py-3 px-3">30d Vol</th>
-              <th class="py-3 px-3">IV Rank</th>
-              <th class="py-3 px-3">6M IVP</th>
-              <th class="py-3 px-3">14D RSI</th>
-              <th class="py-3 px-3">The Wheel</th>
-              <th class="py-3 px-3">Leverage Strategy</th>
+            <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase text-xs">
+              <th class="py-2.5 px-3">Symbol &amp; Spot</th>
+              <th class="py-2.5 px-3">Market Regime</th>
+              <th class="py-2.5 px-3">Strategy &amp; Bias</th>
+              <th class="py-2.5 px-3">Expiration</th>
+              <th class="py-2.5 px-3">Spread Structure</th>
+              <th class="py-2.5 px-3">Net Price</th>
+              <th class="py-2.5 px-3">Max P/L</th>
+              <th class="py-2.5 px-3">ROC &amp; POP</th>
+              <th class="py-2.5 px-3">Breakeven / Cushion</th>
+              <th class="py-2.5 px-3 text-right">Action</th>
             </tr>
           </thead>
-          <tbody id="telemetryTableBody" class="divide-y-2 divide-slate-700 font-mono">
-            <tr>
-              <td colspan="9" class="py-10 text-center text-slate-400 font-bold text-sm">
-                <span class="inline-block animate-pulse text-cyan-300 font-black text-base">⏳ Loading Live 13-Ticker Telemetry Matrix...</span>
-              </td>
-            </tr>
+          <tbody id="spreadTableBody" class="divide-y-2 divide-slate-700 font-mono">
+            <tr><td colspan="10" class="py-4 text-center text-slate-400">Loading dynamic vertical spread recommendations...</td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <!-- TAB 5: MANUAL POSITIONS & DYNAMIC EXITS (CROSS-DEVICE WEB FORM) -->
-    <div id="panel-positions" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-6">
+    
+    </div> <!-- Close panel-radar -->
+
+<!-- TAB 5: MANUAL POSITIONS & DYNAMIC EXITS (CROSS-DEVICE WEB FORM) -->
+    <div id="panel-portfolio" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-6">
       <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
         <div>
           <h2 class="text-xl md:text-2xl font-black text-white">Portfolio Holdings: Unified Exposure &amp; Positions</h2>
@@ -662,88 +828,8 @@
       </div>
     </div>
 
-    <!-- TAB 6: VERTICAL SPREADS (CALL OR PUT BASED ON MARKET CONDITION) -->
-    <div id="panel-spreads" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-5 shadow-xl space-y-4">
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-3">
-        <div>
-          <h2 class="text-xl md:text-2xl font-black text-white flex items-center space-x-2">
-            <span class="h-3.5 w-3.5 rounded-full bg-indigo-400"></span>
-            <span>Vertical Spreads: Call or Put by Market Regime</span>
-          </h2>
-          <p class="text-xs md:text-sm font-bold text-slate-300 mt-1">
-            Quantitative engine: <span class="text-emerald-300 font-black">Bull Put Credit</span> (dips + high IV), <span class="text-rose-300 font-black">Bear Call Credit</span> (rallies + high IV), or <span class="text-cyan-300 font-black">Debit Spreads</span> (low IV momentum).
-          </p>
-        </div>
-        <div class="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-indigo-400">
-          <label for="spreadFilterSelect" class="text-xs font-black text-yellow-300 uppercase">Filter Strategy:</label>
-          <select id="spreadFilterSelect" onchange="renderSpreadSection()" class="bg-slate-950 border border-slate-600 rounded-lg px-2 py-1 text-xs text-indigo-300 font-black focus:outline-none">
-            <option value="ALL">All Strategies (13 Tickers)</option>
-            <option value="CREDIT">Credit Spreads Only (High IV / Income)</option>
-            <option value="DEBIT">Debit Spreads Only (Low IV / Directional)</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Regime Strategy Guide (Collapsible to keep table visible on screen) -->
-      <details class="bg-[#090d16] border border-slate-700 rounded-xl p-3 text-xs cursor-pointer group">
-        <summary class="font-bold text-indigo-300 flex items-center justify-between select-none">
-          <span class="flex items-center space-x-2">
-            <span>📘 Strategy Guide: High IV (Credit Spreads) vs Low IV (Debit Spreads) Rules</span>
-          </span>
-          <span class="text-slate-400 group-open:rotate-180 transition-transform text-xs">▼ Click to Expand</span>
-        </summary>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-800">
-          <div class="bg-slate-900/80 border border-emerald-500/50 rounded-lg p-3 space-y-1">
-            <div class="flex items-center justify-between">
-              <span class="font-black text-emerald-300">🟢 High IV Regime (IV Rank &ge; 35%): Sell Credit Spreads</span>
-              <span class="px-2 py-0.5 rounded bg-emerald-500 text-black font-black text-[10px]">POSITIVE THETA</span>
-            </div>
-            <p class="text-[11px] text-slate-300">Options are expensive. Sell near-the-money leg and buy cheaper OTM wing for strict defined risk.</p>
-            <div class="text-[11px] font-mono text-slate-200">
-              <div>• <strong>RSI &le; 50 (Dip):</strong> <span class="text-emerald-300 font-bold">Bull Put Credit Spread</span> (~0.25&Delta; / ~0.15&Delta;)</div>
-              <div>• <strong>RSI &gt; 50 (Rally):</strong> <span class="text-rose-300 font-bold">Bear Call Credit Spread</span> (~0.25&Delta; / ~0.15&Delta;)</div>
-            </div>
-          </div>
-          <div class="bg-slate-900/80 border border-cyan-500/50 rounded-lg p-3 space-y-1">
-            <div class="flex items-center justify-between">
-              <span class="font-black text-cyan-300">🔵 Low IV Regime (IV Rank &lt; 35%): Buy Debit Spreads</span>
-              <span class="px-2 py-0.5 rounded bg-cyan-500 text-black font-black text-[10px]">CHEAP VOLATILITY</span>
-            </div>
-            <p class="text-[11px] text-slate-300">Options are cheap. Buy directional leg and sell further OTM wing to finance position.</p>
-            <div class="text-[11px] font-mono text-slate-200">
-              <div>• <strong>RSI &le; 50:</strong> <span class="text-cyan-300 font-bold">Bull Call Debit Spread</span> (BTO ATM/ITM + STO OTM)</div>
-              <div>• <strong>RSI &gt; 50:</strong> <span class="text-amber-300 font-bold">Bear Put Debit Spread</span> (BTO ATM/ITM + STO OTM)</div>
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <!-- Dynamic Spreads Table -->
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs md:text-sm border-collapse font-bold">
-          <thead>
-            <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase text-xs">
-              <th class="py-2.5 px-3">Symbol &amp; Spot</th>
-              <th class="py-2.5 px-3">Market Regime</th>
-              <th class="py-2.5 px-3">Strategy &amp; Bias</th>
-              <th class="py-2.5 px-3">Expiration</th>
-              <th class="py-2.5 px-3">Spread Structure</th>
-              <th class="py-2.5 px-3">Net Price</th>
-              <th class="py-2.5 px-3">Max P/L</th>
-              <th class="py-2.5 px-3">ROC &amp; POP</th>
-              <th class="py-2.5 px-3">Breakeven / Cushion</th>
-              <th class="py-2.5 px-3 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody id="spreadTableBody" class="divide-y-2 divide-slate-700 font-mono">
-            <tr><td colspan="10" class="py-4 text-center text-slate-400">Loading dynamic vertical spread recommendations...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
     <!-- TAB 7:<!-- TAB 7: PAPER TRADING & SCHWAB TRADER HUD -->
-    <div id="panel-paper-trading" class="hidden bg-[#0e172a] border-2 border-emerald-500 rounded-2xl p-6 shadow-2xl space-y-6">
+    <div id="panel-execution" class="hidden bg-[#0e172a] border-2 border-emerald-500 rounded-2xl p-6 shadow-2xl space-y-6">
       
       <!-- Top Title & Mode Banner -->
       <div class="flex flex-wrap items-center justify-between gap-4 border-b-2 border-slate-700 pb-4">
@@ -1338,32 +1424,150 @@
     }
 
     function showTab(tabId) {
-      const tabs = ['wheel', 'leap', 'leveraged', 'telemetry', 'positions', 'spreads', 'paper-trading'];
-      tabs.forEach(t => {
-        const panel = document.getElementById(`panel-${t}`);
+      let hubId = 'scanner';
+      let radarSub = null;
+
+      if (tabId === 'scanner' || tabId === 'telemetry') {
+        hubId = 'scanner';
+      } else if (tabId === 'portfolio' || tabId === 'positions') {
+        hubId = 'portfolio';
+      } else if (tabId === 'execution' || tabId === 'paper-trading') {
+        hubId = 'execution';
+      } else if (tabId === 'radar') {
+        hubId = 'radar';
+      } else if (tabId === 'wheel' || tabId === 'leap' || tabId === 'spreads' || tabId === 'leveraged') {
+        hubId = 'radar';
+        radarSub = tabId;
+      }
+
+      const hubs = ['scanner', 'radar', 'portfolio', 'execution'];
+      hubs.forEach(h => {
+        const panel = document.getElementById(`panel-${h}`);
         if (panel) panel.classList.add('hidden');
-        const btn = document.getElementById(`tabBtn-${t}`);
+        const btn = document.getElementById(`tabBtn-${h}`);
         if (btn) {
-          btn.classList.remove('bg-emerald-500', 'bg-amber-400', 'bg-indigo-500', 'bg-emerald-400', 'text-black', 'text-white', 'border-white');
+          btn.classList.remove('bg-cyan-500', 'bg-yellow-400', 'bg-emerald-500', 'bg-white', 'text-black', 'border-white', 'shadow-xl');
           btn.classList.add('bg-[#0e172a]', 'text-slate-200', 'border-slate-600');
         }
       });
 
-      const activePanel = document.getElementById(`panel-${tabId}`);
+      const activePanel = document.getElementById(`panel-${hubId}`);
       if (activePanel) activePanel.classList.remove('hidden');
-      const activeBtn = document.getElementById(`tabBtn-${tabId}`);
+
+      const activeBtn = document.getElementById(`tabBtn-${hubId}`);
       if (activeBtn) {
         activeBtn.classList.remove('bg-[#0e172a]', 'text-slate-200', 'border-slate-600');
-        if (tabId === 'leveraged') {
-          activeBtn.classList.add('bg-amber-400', 'text-black', 'border-white');
-        } else if (tabId === 'spreads') {
-          activeBtn.classList.add('bg-indigo-500', 'text-white', 'border-white');
-        } else if (tabId === 'paper-trading') {
-          activeBtn.classList.add('bg-emerald-400', 'text-black', 'border-white');
-          loadPaperTradingData();
-        } else {
-          activeBtn.classList.add('bg-emerald-500', 'text-black', 'border-white');
+        if (hubId === 'scanner') {
+          activeBtn.classList.add('bg-cyan-500', 'text-black', 'border-white', 'shadow-xl');
+        } else if (hubId === 'radar') {
+          activeBtn.classList.add('bg-white', 'text-black', 'border-white', 'shadow-xl');
+        } else if (hubId === 'portfolio') {
+          activeBtn.classList.add('bg-yellow-400', 'text-black', 'border-white', 'shadow-xl');
+        } else if (hubId === 'execution') {
+          activeBtn.classList.add('bg-emerald-500', 'text-black', 'border-white', 'shadow-xl');
+          if (typeof loadPaperTradingData === 'function') loadPaperTradingData();
         }
+      }
+
+      if (radarSub) {
+        filterRadar(radarSub);
+      }
+    }
+
+    function filterRadar(strategy) {
+      const sections = ['wheel', 'leap', 'spreads', 'leveraged'];
+      sections.forEach(s => {
+        const el = document.getElementById(`radar-${s}`);
+        if (el) {
+          if (strategy === 'all' || strategy === s) {
+            el.classList.remove('hidden');
+          } else {
+            el.classList.add('hidden');
+          }
+        }
+        const btn = document.getElementById(`pillBtn-${s}`);
+        if (btn) {
+          btn.classList.remove('bg-cyan-500', 'bg-emerald-500', 'bg-purple-500', 'bg-indigo-500', 'bg-amber-500', 'text-black', 'text-white');
+          btn.classList.add('bg-slate-800', 'text-slate-300');
+        }
+      });
+      const allBtn = document.getElementById('pillBtn-all');
+      if (allBtn) {
+        allBtn.classList.remove('bg-white', 'text-black');
+        allBtn.classList.add('bg-slate-800', 'text-slate-300');
+      }
+
+      if (strategy === 'all') {
+        if (allBtn) {
+          allBtn.classList.remove('bg-slate-800', 'text-slate-300');
+          allBtn.classList.add('bg-white', 'text-black');
+        }
+      } else {
+        const activeBtn = document.getElementById(`pillBtn-${strategy}`);
+        if (activeBtn) {
+          activeBtn.classList.remove('bg-slate-800', 'text-slate-300');
+          if (strategy === 'wheel') activeBtn.classList.add('bg-emerald-500', 'text-black');
+          else if (strategy === 'leap') activeBtn.classList.add('bg-purple-500', 'text-white');
+          else if (strategy === 'spreads') activeBtn.classList.add('bg-indigo-500', 'text-white');
+          else if (strategy === 'leveraged') activeBtn.classList.add('bg-amber-400', 'text-black');
+          else activeBtn.classList.add('bg-cyan-500', 'text-black');
+        }
+      }
+    }
+
+    function jumpToRadar(sym) {
+      showTab('radar');
+      filterRadar('all');
+    }
+
+    async function addWatchlistTicker() {
+      const symInput = document.getElementById('newTickerSymbol');
+      const levInput = document.getElementById('newTickerLeveraged');
+      const sym = symInput ? symInput.value.trim().toUpperCase() : '';
+      const isLev = levInput ? levInput.checked : false;
+      if (!sym) {
+        alert('Please enter a valid ticker symbol (e.g. NVDA, AAPL)');
+        return;
+      }
+      const btn = document.getElementById('btnAddTicker');
+      if (btn) { btn.disabled = true; btn.innerText = 'Adding...'; }
+      try {
+        const resp = await fetch('/api/watchlist/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: sym, is_leveraged: isLev })
+        });
+        const res = await resp.json();
+        if (res.status === 'success') {
+          symInput.value = '';
+          if (levInput) levInput.checked = false;
+          await fetchDashboardData();
+        } else {
+          alert('Error adding ticker: ' + (res.message || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Failed to add ticker: ' + e);
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerText = '➕ Add Ticker'; }
+      }
+    }
+
+    async function deleteWatchlistTicker(sym) {
+      if (!confirm(`Are you sure you want to remove ${sym} from the Watchlist?`)) return;
+      try {
+        const resp = await fetch('/api/watchlist/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: sym })
+        });
+        const res = await resp.json();
+        if (res.status === 'success') {
+          await fetchDashboardData();
+        } else {
+          alert('Error removing ticker: ' + (res.message || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Failed to remove ticker: ' + e);
       }
     }
 
@@ -2400,23 +2604,47 @@
         }
       }
 
-      // Update Live Multi-Asset Telemetry Matrix (All 13 Tickers)
+      // Update Live Multi-Asset Telemetry Matrix + Direct Stock DCA Tranches
       if (data.watchlist && data.watchlist.length > 0) {
         const tBody = document.getElementById('telemetryTableBody');
+        const countEl = document.getElementById('statTickersCount');
+        if (countEl) countEl.innerText = `${data.watchlist.length} Assets`;
         if (tBody) {
           tBody.innerHTML = '';
           data.watchlist.forEach(t => {
             const tr = document.createElement('tr');
-            if (t.wheel_qualified) tr.className = 'bg-emerald-950/40';
-            else if (t.leap_qualified) tr.className = 'bg-purple-950/40';
-            const catLabel = t.is_tax_advantaged ? 'Sec 1256 (60/40)' : (t.is_leveraged ? '3x Leveraged' : t.category.split(' ')[0]);
-            const catColor = t.is_tax_advantaged ? 'text-cyan-300' : (t.is_leveraged ? 'text-amber-300' : 'text-slate-200');
-            const wheelCol = t.wheel_qualified
-              ? '<span class="text-emerald-300 font-black">WHEEL TRIGGERED</span>'
-              : '<span class="text-yellow-300 font-bold">Monitor</span>';
-            let levCol = '<span class="text-slate-200 font-bold">Watchlist</span>';
-            if (t.is_leveraged) levCol = '<span class="text-amber-300 font-bold">0.20&Delta; CSP</span>';
-            else if (t.leap_qualified) levCol = '<span class="text-purple-300 font-black">LEAP QUALIFIED</span>';
+            if (t.wheel_qualified) tr.className = 'bg-emerald-950/30';
+            else if (t.leap_qualified) tr.className = 'bg-purple-950/30';
+            
+            const catLabel = t.is_tax_advantaged ? 'Sec 1256 (60/40)' : (t.is_leveraged ? '3x Leveraged' : (t.category ? t.category.split(' ')[0] : 'Equity'));
+            const catColor = t.is_tax_advantaged ? 'text-cyan-300' : (t.is_leveraged ? 'text-amber-300' : 'text-slate-300');
+            
+            // Stock Accumulation Tranche Badge
+            let stockBadge = '<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-xs font-bold border border-slate-700">Hold Existing</span>';
+            const sig = t.stock_buy_signal || 'HOLD';
+            const tranche = t.stock_buy_tranche || 'Hold / Monitor';
+            const rationale = (t.stock_buy_rationale || '').replace(/"/g, '&quot;');
+            
+            if (sig === 'BUY_TRANCHE_2') {
+              stockBadge = `<span class="px-2.5 py-1 rounded-lg bg-emerald-500 text-black text-xs font-black shadow inline-block" title="${rationale}">💰 ${tranche}</span>`;
+            } else if (sig === 'BUY_TRANCHE_1') {
+              stockBadge = `<span class="px-2.5 py-1 rounded-lg bg-cyan-400 text-black text-xs font-black shadow inline-block" title="${rationale}">🛒 ${tranche}</span>`;
+            } else if (sig === 'TRIM_OVERBOUGHT') {
+              stockBadge = `<span class="px-2.5 py-1 rounded-lg bg-amber-500 text-black text-xs font-black shadow inline-block" title="${rationale}">✂️ ${tranche}</span>`;
+            } else {
+              stockBadge = `<span class="px-2.5 py-0.5 rounded bg-slate-800 text-slate-300 text-xs font-bold border border-slate-700 inline-block" title="${rationale}">⏸️ ${tranche}</span>`;
+            }
+
+            // Options Radar Button
+            let optBadge = '<button onclick="jumpToRadar('' + t.symbol + '')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-yellow-300 text-xs font-black border border-slate-600 transition">⚡ View Radar</button>';
+            if (t.wheel_qualified) {
+              optBadge = '<button onclick="showTab('wheel')" class="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black transition shadow">🛡️ Wheel CSP</button>';
+            } else if (t.leap_qualified) {
+              optBadge = '<button onclick="showTab('leap')" class="px-2.5 py-1 rounded-lg bg-purple-500 hover:bg-purple-400 text-white text-xs font-black transition shadow">🚀 LEAP Call</button>';
+            } else if (t.is_leveraged) {
+              optBadge = '<button onclick="showTab('leveraged')" class="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-xs font-black transition shadow">⚡ 3x CSP</button>';
+            }
+
             tr.innerHTML = `
               <td class="py-3 px-3 font-sans font-black text-white text-lg">${t.symbol}</td>
               <td class="py-3 px-3 font-sans ${catColor}">${catLabel}</td>
@@ -2424,9 +2652,12 @@
               <td class="py-3 px-3">${(t.iv * 100.0).toFixed(1)}%</td>
               <td class="py-3 px-3 ${t.wheel_qualified ? 'text-emerald-300 font-black' : (t.leap_qualified ? 'text-purple-300 font-black' : '')}">${t.iv_rank.toFixed(1)}%</td>
               <td class="py-3 px-3">${t.iv_percentile_6m.toFixed(1)}%</td>
-              <td class="py-3 px-3 ${t.leap_qualified ? 'text-cyan-300 font-black' : ''}">${t.rsi.toFixed(1)}</td>
-              <td class="py-3 px-3">${wheelCol}</td>
-              <td class="py-3 px-3">${levCol}</td>
+              <td class="py-3 px-3 ${t.rsi < 35 ? 'text-cyan-300 font-black' : (t.rsi > 65 ? 'text-amber-400 font-black' : '')}">${t.rsi.toFixed(1)}</td>
+              <td class="py-3 px-3">${stockBadge}</td>
+              <td class="py-3 px-3">${optBadge}</td>
+              <td class="py-3 px-3 text-center">
+                <button onclick="deleteWatchlistTicker('${t.symbol}')" class="px-2 py-1 bg-red-950/80 hover:bg-red-800 text-red-300 text-xs font-bold rounded-lg border border-red-500/50 transition" title="Delete ${t.symbol}">🗑️</button>
+              </td>
             `;
             tBody.appendChild(tr);
           });
