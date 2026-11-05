@@ -11,14 +11,17 @@ Supports both Fidelity export layouts:
 2. Fidelity "Overview / Positions" View CSV (contains Quantity, Last Price, Average Cost Basis)
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
+import json
 import datetime
 import glob
 import os
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 OCC_REGEX = re.compile(r"^-?([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d+(?:\.\d+)?)$")
@@ -379,6 +382,141 @@ def write_positions_csv(positions: List[ConvertedOptionPosition], output_path: s
             )
 
 
+def extract_fidelity_portfolio_balances(csv_path: str, output_json: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Parses cash balances, money market sweeps (SPAXX, FDRXX), pending cash,
+    and non-optionable assets (mutual funds, sub-100 shares) directly from Fidelity CSV.
+    """
+    if not os.path.exists(csv_path):
+        return {}
+
+    accounts: Dict[str, Dict[str, Any]] = {}
+    TRADING_ACCTS = {"INDIVIDUAL - TOD", "ROTH IRA", "Rollover IRA", "Health Savings Account", "ROTH IRA (0688)"}
+
+    with open(csv_path, "r", encoding="utf-8-sig", errors="replace") as f:
+        reader = csv.reader(f)
+        header_row = None
+        for raw_row in reader:
+            if not raw_row or not any(cell.strip() for cell in raw_row):
+                continue
+            first_cell = raw_row[0].strip().lower()
+            row_cells_lower = [c.strip().lower() for c in raw_row]
+            if "account" in first_cell and ("symbol" in row_cells_lower or "description" in row_cells_lower):
+                header_row = row_cells_lower
+                break
+        if not header_row:
+            return {}
+
+        col_map = {name: i for i, name in enumerate(header_row)}
+
+        for raw_row in reader:
+            if not raw_row or len(raw_row) < 3:
+                continue
+            first_clean = raw_row[0].strip()
+            if first_clean.startswith('"The data and information') or first_clean.startswith('Brokerage services'):
+                break
+
+            def get_col(name: str) -> str:
+                idx = col_map.get(name)
+                return raw_row[idx].strip() if (idx is not None and idx < len(raw_row)) else ""
+
+            acct_num = get_col("account number")
+            acct_name = get_col("account name")
+            if not acct_name and not acct_num:
+                continue
+            if acct_name == "ROTH IRA" and acct_num.endswith("0688"):
+                acct_name = "ROTH IRA (0688)"
+
+            if acct_name not in accounts:
+                accounts[acct_name] = {
+                    "account_number": acct_num,
+                    "account_name": acct_name,
+                    "is_trading_account": acct_name in TRADING_ACCTS,
+                    "gross_cash": 0.0,
+                    "pending_cash": 0.0,
+                    "net_cash": 0.0,
+                    "cash_sweep_symbol": "SPAXX",
+                    "total_account_value": 0.0,
+                    "mutual_funds_value": 0.0,
+                    "mutual_funds_count": 0,
+                    "equities_value": 0.0,
+                }
+
+            acc = accounts[acct_name]
+            inv_type = get_col("investment type").lower()
+            sym = get_col("symbol").upper()
+            desc = get_col("description")
+            curr_val = clean_currency(get_col("current value")) or 0.0
+
+            acc["total_account_value"] += curr_val
+
+            is_cash = (
+                inv_type == "cash"
+                or sym.startswith("SPAXX")
+                or sym.startswith("FDRXX")
+                or "HELD IN MONEY MARKET" in desc.upper()
+            )
+            is_pending = "PENDING ACTIVITY" in desc.upper() or "PENDING ACTIVITY" in sym.upper()
+
+            if is_cash:
+                acc["gross_cash"] += curr_val
+                if "FDRXX" in sym or "FDRXX" in desc.upper():
+                    acc["cash_sweep_symbol"] = "FDRXX"
+            elif is_pending:
+                acc["pending_cash"] += curr_val
+            elif inv_type in ("mutual funds", "others"):
+                acc["mutual_funds_value"] += curr_val
+                acc["mutual_funds_count"] += 1
+            elif inv_type in ("stocks", "etfs"):
+                acc["equities_value"] += curr_val
+
+    # Finalize per-account and global totals
+    total_trading_gross_cash = 0.0
+    total_trading_pending_cash = 0.0
+    total_trading_net_cash = 0.0
+    total_portfolio_net_worth = 0.0
+
+    for a_name, a in accounts.items():
+        a["gross_cash"] = round(a["gross_cash"], 2)
+        a["pending_cash"] = round(a["pending_cash"], 2)
+        a["net_cash"] = round(a["gross_cash"] + a["pending_cash"], 2)
+        a["total_account_value"] = round(a["total_account_value"], 2)
+        a["mutual_funds_value"] = round(a["mutual_funds_value"], 2)
+        a["equities_value"] = round(a["equities_value"], 2)
+
+        total_portfolio_net_worth += a["total_account_value"]
+        if a["is_trading_account"]:
+            total_trading_gross_cash += a["gross_cash"]
+            total_trading_pending_cash += a["pending_cash"]
+            total_trading_net_cash += a["net_cash"]
+
+    apy = 0.0475  # Fidelity Money Market default APY (SPAXX ~4.75%)
+    annual_yield = round(total_trading_net_cash * apy, 2)
+    monthly_yield = round(annual_yield / 12.0, 2)
+
+    summary = {
+        "as_of_date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "source_file": os.path.basename(csv_path),
+        "total_trading_net_cash": round(total_trading_net_cash, 2),
+        "total_trading_gross_cash": round(total_trading_gross_cash, 2),
+        "total_trading_pending_cash": round(total_trading_pending_cash, 2),
+        "total_portfolio_net_worth": round(total_portfolio_net_worth, 2),
+        "cash_sweep_apy": apy,
+        "annual_cash_yield_dollars": annual_yield,
+        "monthly_cash_yield_dollars": monthly_yield,
+        "accounts": accounts,
+    }
+
+    if output_json:
+        try:
+            with open(output_json, "w", encoding="utf-8") as f:
+                json.dump(summary, f, indent=2)
+        except Exception:
+            pass
+
+    return summary
+
+
 def convert_latest_fidelity_to_positions(
     base_dir: Optional[str] = None,
     input_csv: Optional[str] = None,
@@ -394,6 +532,13 @@ def convert_latest_fidelity_to_positions(
     dst_csv = output_csv or os.path.join(root_dir, "positions.csv")
     positions = parse_fidelity_csv(src_csv, existing_positions_csv=dst_csv)
     write_positions_csv(positions, dst_csv, os.path.basename(src_csv))
+
+    balances_json = os.path.join(root_dir, "portfolio_balances.json")
+    try:
+        extract_fidelity_portfolio_balances(src_csv, output_json=balances_json)
+    except Exception:
+        pass
+
     return src_csv, positions
 
 

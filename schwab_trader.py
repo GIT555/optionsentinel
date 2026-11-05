@@ -7,6 +7,7 @@ Charles Schwab Trader API v1 Client & Order Builder.
 - Live Order Execution with Double Confirmation (POST /trader/v1/accounts/{hash}/orders)
 - Formats standard 21-character OCC option symbols (e.g. 'SOXL  261120P00160000')
 - Builds Single-Leg (CSP/CC) and Multi-Leg Vertical Spread Order Payloads
+- Gracefully handles Market-Data-only developer apps without console 401 spam
 """
 
 from __future__ import annotations
@@ -59,14 +60,42 @@ class SchwabTraderClient:
         self.app_key = ""
         self.app_secret = ""
         self.redirect_uri = "https://127.0.0.1"
+        self._trader_enabled_flag: bool = False
+        self._trader_authorized: Optional[bool] = None
         self._sync_env_credentials()
 
     def _sync_env_credentials(self):
-        from live_market_data import _load_local_dotenv
+        from live_market_data import _load_local_dotenv, get_app_credential
         dotenv_vars = _load_local_dotenv()
-        self.app_key = (os.environ.get("SCHWAB_APP_KEY") or dotenv_vars.get("SCHWAB_APP_KEY") or "").strip()
-        self.app_secret = (os.environ.get("SCHWAB_APP_SECRET") or dotenv_vars.get("SCHWAB_APP_SECRET") or "").strip()
-        self.redirect_uri = (os.environ.get("SCHWAB_REDIRECT_URI") or dotenv_vars.get("SCHWAB_REDIRECT_URI") or "https://127.0.0.1").strip()
+        self.app_key = get_app_credential("SCHWAB_APP_KEY", dotenv_vars)
+        self.app_secret = get_app_credential("SCHWAB_APP_SECRET", dotenv_vars)
+        redirect = (
+            get_app_credential("SCHWAB_CALLBACK_URL", dotenv_vars)
+            or get_app_credential("SCHWAB_REDIRECT_URI", dotenv_vars)
+            or "https://127.0.0.1"
+        )
+        if "?code=" in redirect:
+            redirect = redirect.split("?")[0]
+        self.redirect_uri = redirect
+        raw_trader = (
+            get_app_credential("ENABLE_SCHWAB_TRADER", dotenv_vars)
+            or get_app_credential("SCHWAB_TRADER_ENABLED", dotenv_vars)
+            or "false"
+        )
+        self._trader_enabled_flag = raw_trader.strip().lower() in ("true", "1", "yes")
+
+    @property
+    def is_trader_enabled(self) -> bool:
+        """
+        Returns True only if explicitly opted in via ENABLE_SCHWAB_TRADER=true in .env.
+        Defaults to False so users using Market Data only never encounter 401 logs or unwanted trader calls.
+        """
+        self._sync_env_credentials()
+        return self._trader_enabled_flag
+
+    def reset_authorization_cache(self):
+        """Resets the cached authorization state (e.g. after re-authenticating with new scope)."""
+        self._trader_authorized = None
 
     def _load_tokens(self) -> Dict[str, Any]:
         if os.path.exists(self.token_path):
@@ -100,7 +129,13 @@ class SchwabTraderClient:
 
         refresh_token = tokens.get("refresh_token")
         refresh_exp = float(tokens.get("refresh_expires_at", 0.0))
-        if not refresh_token or now >= refresh_exp:
+        if not refresh_token:
+            return None
+        if now >= refresh_exp:
+            if (now - getattr(self, "_last_trader_warn", 0)) > 120:
+                self._last_trader_warn = now
+                exp_dt = datetime.datetime.fromtimestamp(refresh_exp).strftime("%Y-%m-%d %H:%M:%S") if refresh_exp > 0 else "unknown"
+                sys.stderr.write(f"\n[SCHWAB-TRADER NOTICE]: Schwab token expired on {exp_dt}. Live trader routes disabled until re-auth.\n")
             return None
 
         basic_token = base64.b64encode(f"{self.app_key}:{self.app_secret}".encode("utf-8")).decode("utf-8")
@@ -124,11 +159,20 @@ class SchwabTraderClient:
             sys.stderr.write(f"[SCHWAB-TRADER] Token refresh error: {e}\n")
         return None
 
-    def get_account_numbers(self) -> List[Dict[str, str]]:
+    def get_account_numbers(self, force_check: bool = False) -> List[Dict[str, str]]:
         """
         Retrieves list of linked Schwab accounts with their encrypted hashValue.
         Endpoint: GET https://api.schwabapi.com/trader/v1/accounts/accountNumbers
+        Gracefully suppresses HTTP 401/403 logs if the user is in Market-Data-only mode.
         """
+        if not self.is_trader_enabled and not force_check:
+            # Trader mode not enabled in .env; avoid unauthorized trader API calls
+            return []
+
+        if self._trader_authorized is False and not force_check:
+            # Already verified unauthorized (Market Data app key); do not spam endpoint
+            return []
+
         token = self.get_valid_access_token()
         if not token:
             return []
@@ -137,8 +181,15 @@ class SchwabTraderClient:
         try:
             resp = requests.get("https://api.schwabapi.com/trader/v1/accounts/accountNumbers", headers=headers, timeout=5)
             if resp.status_code == 200:
+                self._trader_authorized = True
                 return resp.json()
-            sys.stderr.write(f"[SCHWAB-TRADER] accountNumbers HTTP {resp.status_code}: {resp.text[:150]}\n")
+            elif resp.status_code in (401, 403):
+                # Account/Trading scope not provisioned (Market Data Only).
+                # Mark unauthorized to cache and prevent repetitive console spam.
+                self._trader_authorized = False
+                return []
+            else:
+                sys.stderr.write(f"[SCHWAB-TRADER] accountNumbers HTTP {resp.status_code}: {resp.text[:150]}\n")
         except Exception as e:
             sys.stderr.write(f"[SCHWAB-TRADER] accountNumbers error: {e}\n")
         return []
@@ -148,6 +199,9 @@ class SchwabTraderClient:
         Retrieves real-time buying power and positions for account.
         Endpoint: GET https://api.schwabapi.com/trader/v1/accounts/{accountHash}?fields=positions
         """
+        if not self.is_trader_enabled or self._trader_authorized is False:
+            return None
+
         token = self.get_valid_access_token()
         if not token:
             return None
@@ -167,6 +221,12 @@ class SchwabTraderClient:
         Dry-run order validation without live routing (Schwab's official sandbox/preview).
         Endpoint: POST https://api.schwabapi.com/trader/v1/accounts/{accountHash}/previewOrder
         """
+        if not self.is_trader_enabled:
+            return {
+                "status": "error",
+                "message": "Schwab Live Trader is disabled (ENABLE_SCHWAB_TRADER=false). Use Paper Trading Engine.",
+            }
+
         token = self.get_valid_access_token()
         if not token:
             return {"status": "error", "message": "No valid Schwab access token. Re-authenticate OAuth."}
@@ -197,6 +257,12 @@ class SchwabTraderClient:
         Submits real live order to Charles Schwab. Requires live_confirm=True for safety.
         Endpoint: POST https://api.schwabapi.com/trader/v1/accounts/{accountHash}/orders
         """
+        if not self.is_trader_enabled:
+            return {
+                "status": "error",
+                "message": "Schwab Live Trader is disabled (ENABLE_SCHWAB_TRADER=false). Use Paper Trading Engine.",
+            }
+
         if not live_confirm:
             return {
                 "status": "safety_block",
@@ -296,8 +362,6 @@ class SchwabTraderClient:
         long_occ = format_schwab_occ_symbol(symbol, expiration, opt_type, long_strike)
 
         order_type = "NET_CREDIT" if is_credit else "NET_DEBIT"
-        short_inst = "SELL_TO_OPEN" if is_credit else "SELL_TO_OPEN"
-        long_inst = "BUY_TO_OPEN" if is_credit else "BUY_TO_OPEN"
 
         return {
             "orderType": order_type,
@@ -389,4 +453,3 @@ class SchwabTraderClient:
                 },
             ],
         }
-

@@ -270,10 +270,16 @@ class StrategyScanner:
         self.market_client = LiveMarketClient()
         self.math = QuantMath()
         self.snapshots: Dict[str, LiveTickerSnapshot] = {}
+        self._summary_cache: Optional[Dict[str, Any]] = None
+        self._summary_time: float = 0
+        self._summary_lock = threading.Lock()
         self.refresh()
 
     def refresh(self):
         self.snapshots = self.market_client.get_all_snapshots_parallel(list(WATCHLIST_MATRIX.keys()))
+        self.market_client.preload_chains_parallel(list(WATCHLIST_MATRIX.keys()))
+        with self._summary_lock:
+            self._summary_cache = None
 
     def scan_ticker_universe(self) -> List[TickerScanResult]:
         results: List[TickerScanResult] = []
@@ -459,7 +465,7 @@ class StrategyScanner:
             leap_delta_val = 0.85
             leap_theta_val = -0.01
 
-            leaps = self.market_client.get_live_leap_options(sym, min_dte=340)
+            leaps = self.market_client.get_live_leap_options(sym, min_dte=180)
             if leaps:
                 # One expiration only (closest to 390 DTE), tradable (live bid/ask) strikes preferred.
                 leaps = [c for c in leaps if c.bid > 0 and c.ask > 0] or leaps
@@ -608,7 +614,7 @@ class StrategyScanner:
             leap_exp = ""
             leap_delta_val = -0.85
 
-            leaps = self.market_client.get_live_leap_options(sym, min_dte=340, option_type="PUT")
+            leaps = self.market_client.get_live_leap_options(sym, min_dte=180, option_type="PUT")
             if leaps:
                 best_leap = min(leaps, key=lambda c: abs(c.delta_approx - (-0.85)))
                 leap_contract = best_leap.contract_symbol
@@ -1019,6 +1025,20 @@ class GammaDangerSentinel:
                 except Exception:
                     continue
 
+        # Pre-compute short calls and lots per (symbol, account) to check if shares are already covered
+        acct_coverage: Dict[Tuple[str, str], Dict[str, int]] = {}
+        for (r_sym, _k, r_type, _exp, r_qty, _prem, r_acct) in user_rows:
+            cov_key = (r_sym, r_acct)
+            if cov_key not in acct_coverage:
+                acct_coverage[cov_key] = {"shares": 0, "leaps": 0, "short_calls": 0}
+            if r_type in ("EQUITY", "SHARES", "STOCK"):
+                acct_coverage[cov_key]["shares"] += r_qty
+            elif r_type == "CALL":
+                if r_qty < 0:
+                    acct_coverage[cov_key]["short_calls"] += abs(r_qty)
+                elif r_qty > 0:
+                    acct_coverage[cov_key]["leaps"] += r_qty
+
         results: List[Dict[str, Any]] = []
         for idx, (sym, strike, opt_type, exp_str, contracts, entry_prem, acct_label) in enumerate(user_rows, start=1):
             if opt_type in ("EQUITY", "SHARES", "STOCK"):
@@ -1030,14 +1050,32 @@ class GammaDangerSentinel:
                 pnl = (curr_mid - effective_entry) * contracts
                 pnl_pct = ((curr_mid - effective_entry) / effective_entry) * 100.0 if effective_entry > 0 else 0.0
 
-                if snap and snap.rsi_14 < 35.0:
-                    status = f"EQUITY DIP ZONE: RSI {snap.rsi_14:.1f} (<35 DCA)"
-                elif snap and (snap.rsi_14 > 65.0 or snap.iv_rank > 40.0) and contracts >= 100:
-                    status = f"WRITE COVERED CALL (IVR {snap.iv_rank:.0f}% / RSI {snap.rsi_14:.0f})"
-                elif contracts >= 100:
-                    status = f"CORE EQUITY ({contracts // 100}x CC ELIGIBLE)"
+                if True:
+                    cov_item = acct_coverage.get((sym, acct_label), {"shares": contracts, "leaps": 0, "short_calls": 0})
+                    tot_lots = (cov_item["shares"] // 100) + cov_item["leaps"]
+                    act_sc = cov_item["short_calls"]
+                    uncovered_lots = max(0, tot_lots - act_sc)
+                    if act_sc >= tot_lots and tot_lots > 0:
+                        status = f"CORE SHARES (COVERED: {act_sc}/{tot_lots} Calls Active)"
+                    elif snap and snap.rsi_14 < 35.0:
+                        status = f"EQUITY DIP ZONE: RSI {snap.rsi_14:.1f} (<35 DCA)"
+                    elif snap and (snap.rsi_14 > 65.0 or snap.iv_rank > 40.0) and uncovered_lots > 0:
+                        status = f"WRITE COVERED CALL ({uncovered_lots}x Uncovered • IVR {snap.iv_rank:.0f}%)"
+                    elif uncovered_lots > 0:
+                        status = f"CORE EQUITY ({uncovered_lots}x CC ELIGIBLE)"
+                    else:
+                        status = "HOLD CORE EQUITY SHARES"
+                    if False:
+                        status = f"CORE EQUITY ({uncovered_lots}x CC ELIGIBLE)"
+                    else:
+                        pass
+                pass
+                if False:
+                    pass
+                elif False:
+                    pass
                 else:
-                    status = "HOLD CORE EQUITY SHARES"
+                    pass
 
                 results.append({
                     "index": idx,
@@ -1081,6 +1119,7 @@ class GammaDangerSentinel:
                 pnl_pct = ((curr_mid - entry_prem) / entry_prem) * 100.0 if entry_prem > 0 else 0.0
 
             gamma_danger = (dte <= 14 and contracts < 0)
+            roll_radar_21 = (14 < dte <= 21 and contracts < 0)
             profit_hit = (pnl_pct >= 50.0 and contracts < 0)
             if gamma_danger and profit_hit:
                 status = "EXIT NOW: 50% PROFIT + <14 DTE GAMMA"
@@ -1088,6 +1127,8 @@ class GammaDangerSentinel:
                 status = "EXIT NOW: 50% MAX PROFIT HIT"
             elif gamma_danger:
                 status = "ROLL / EXIT: <14 DTE GAMMA ZONE"
+            elif roll_radar_21:
+                status = "ROLL RADAR: 21 DTE (Pre-Gamma Window)"
             elif contracts > 0:
                 status = "HOLD LEAP: LONG CORE POSITION" if dte >= 60 else "REVIEW LEAP ROLL (<60 DTE)"
             else:
@@ -1108,7 +1149,7 @@ class GammaDangerSentinel:
             roll_net_credit = None
             roll_plan = None
 
-            if gamma_danger:
+            if gamma_danger or roll_radar_21:
                 try:
                     roll_chain = self.scanner.market_client.get_live_option_chain(sym, 35, 55)
                     cands = [c for c in roll_chain if c.option_type == opt_type]
@@ -1140,6 +1181,7 @@ class GammaDangerSentinel:
                 "pnl_pct": round(pnl_pct, 1),
                 "delta": round(opt_delta, 3),
                 "gamma_danger": gamma_danger,
+                "roll_radar_21": roll_radar_21,
                 "profit_target_hit": profit_hit,
                 "status": status,
                 "earnings_date": earn_date,
@@ -1406,10 +1448,10 @@ class GammaDangerSentinel:
                     f"@ ${cc_mid:.2f} (+${cc_total_credit:,.0f} credit) | Exit @ ${cc_exit_50:.2f} (50%) or 14 DTE"
                 )
             else:
-                when_to_sell = "ALL LOTS COVERED (Wait for 50% Profit or 14 DTE Roll)"
+                when_to_sell = "CSP ONLY (0 Shares Held)" if total_cov_lots == 0 else "ALL LOTS COVERED (Wait for 50% Profit or 14 DTE Roll)"
                 directive = (
-                    f"FULLY COVERED: Next Roll Target ${cc_strike} Call exp {cc_exp} ({cc_dte} DTE) "
-                    f"@ ${cc_mid:.2f} (BTC @ ${cc_exit_50:.2f} / 50% profit)"
+                    (f"CASH-SECURED PUT: -{item['short_puts']}x CSP (0 shares held). Cannot sell CC without underlying shares. Wait for 50% profit or roll at 14 DTE." if total_cov_lots == 0 else f"FULLY COVERED: Next Roll Target ${cc_strike} Call exp {cc_exp} ({cc_dte} DTE) @ ${cc_mid:.2f} (BTC @ ${cc_exit_50:.2f} / 50% profit)") if True else ""
+                    ""
                 )
 
             # Beta-Weighted Exposure against S&P 500 (SPY)
@@ -1654,8 +1696,20 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self._send_json_response({
                     "status": "error",
-                    "message": "Set SCHWAB_APP_KEY and SCHWAB_APP_SECRET in your local .env file first.",
+                    "message": "Set SCHWAB_APP_KEY and SCHWAB_APP_SECRET in your account environment variables or local .env file first.",
                 })
+        elif path == "/api/schwab/start-auto-auth":
+            try:
+                import subprocess
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                subprocess.Popen([sys.executable, os.path.join(base_dir, "schwab_headless_auth.py")], cwd=base_dir)
+                self._send_json_response({
+                    "status": "ok",
+                    "listener_started": True,
+                    "message": "Automated Edge browser opened. Log in once and click Approve; the token will be captured automatically."
+                })
+            except Exception as e:
+                self._send_json_response({"status": "error", "message": str(e)})
         elif path == "/api/paper/summary":
             self._send_json_response({
                 "summary": asdict(self.paper_engine.get_account_summary()),
@@ -1664,12 +1718,14 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             })
         elif path == "/api/schwab/trader/status":
             token_valid = bool(self.schwab_trader.get_valid_access_token())
-            accts = self.schwab_trader.get_account_numbers() if token_valid else []
+            trader_enabled = self.schwab_trader.is_trader_enabled
+            accts = self.schwab_trader.get_account_numbers() if (token_valid and trader_enabled) else []
             self._send_json_response({
                 "token_valid": token_valid,
                 "accounts": accts,
+                "trader_enabled": trader_enabled,
                 "trading_ready": len(accts) > 0,
-                "message": "Connected to Schwab Trader API." if accts else ("Schwab Market Data Active. Authorize 'Accounts and Trading' in Schwab Developer Portal to trade live." if token_valid else "Schwab OAuth not configured."),
+                "message": "Connected to Schwab Trader API." if accts else ("Schwab Market Data Active. (Live Trader disabled: Paper Trading active)." if not trader_enabled else ("Schwab Market Data Active. Authorize 'Accounts and Trading' in Schwab Developer Portal to trade live." if token_valid else "Schwab OAuth not configured.")),
             })
         elif path == "/api/schwab/trader/accounts":
             self._send_json_response(self.schwab_trader.get_account_numbers())
@@ -1785,6 +1841,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             redirect_url = body.get("redirect_url", "").strip()
             if redirect_url:
                 ok, msg = sc.exchange_code_from_redirect(redirect_url)
+                if ok: self.schwab_trader.reset_authorization_cache()
                 if ok:
                     self.scanner.refresh()
                 self._send_json_response({
@@ -1888,8 +1945,50 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "account_count": len(self.schwab_trader.get_account_numbers()) if token_valid else 0,
         }
 
+        # Cash Sweep Yield & Buying Power Safety Engine
+        balances_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portfolio_balances.json")
+        balances_data = {}
+        if os.path.exists(balances_path):
+            try:
+                with open(balances_path, "r", encoding="utf-8") as bf:
+                    balances_data = json.load(bf)
+            except Exception:
+                pass
+        if not balances_data:
+            try:
+                from convert_fidelity_positions import find_latest_fidelity_csv, extract_fidelity_portfolio_balances
+                f_csv = find_latest_fidelity_csv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "Fidelity"))
+                if f_csv:
+                    balances_data = extract_fidelity_portfolio_balances(f_csv, output_json=balances_path)
+            except Exception:
+                pass
+
+        total_trading_cash = balances_data.get("total_trading_net_cash", 51500.0)
+        total_csp_collateral = 0.0
+        for p in manual_positions:
+            if p.get("option_type") == "PUT" and p.get("contracts", 0) < 0:
+                total_csp_collateral += float(p.get("strike", 0.0)) * 100.0 * abs(int(p.get("contracts", 0)))
+        total_csp_collateral = round(total_csp_collateral, 2)
+        utilization_pct = round((total_csp_collateral / total_trading_cash) * 100.0, 1) if total_trading_cash > 0 else 0.0
+        dry_powder_remaining = round(max(0.0, total_trading_cash - total_csp_collateral), 2)
+        safety_status = "SAFE" if utilization_pct < 40.0 else ("MODERATE" if utilization_pct <= 60.0 else "OVER_LEVERAGED")
+
+        cash_safety_summary = {
+            "total_trading_net_cash": total_trading_cash,
+            "total_csp_collateral": total_csp_collateral,
+            "dry_powder_remaining": dry_powder_remaining,
+            "utilization_pct": utilization_pct,
+            "safety_status": safety_status,
+            "cash_sweep_apy": balances_data.get("cash_sweep_apy", 0.0475),
+            "annual_cash_yield_dollars": balances_data.get("annual_cash_yield_dollars", round(total_trading_cash * 0.0475, 2)),
+            "monthly_cash_yield_dollars": balances_data.get("monthly_cash_yield_dollars", round((total_trading_cash * 0.0475) / 12.0, 2)),
+            "total_portfolio_net_worth": balances_data.get("total_portfolio_net_worth", 0.0),
+            "accounts": balances_data.get("accounts", {}),
+        }
+
         summary = {
             "portfolio_beta_summary": portfolio_beta,
+            "cash_safety_summary": cash_safety_summary,
             "paper_trading_summary": paper_sum,
             "paper_positions": paper_pos,
             "schwab_trader_status": schwab_trader_status,
@@ -1904,6 +2003,7 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "leap_put_opportunities": sum(1 for p in leap_puts if p.get("is_qualified")),
             "spread_opportunities": sum(1 for s in spreads if s.get("is_qualified")),
             "gamma_danger_count": len(alerts),
+            "roll_radar_count": sum(1 for p in manual_positions if p.get("roll_radar_21")),
             "manual_positions_count": len(manual_positions),
             "equity_tickers_count": len(equity_exposure),
             "watchlist": watchlist,
@@ -1949,6 +2049,79 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
 # SECTION 6: CLI & ENTRY POINT
 # ==============================================================================
 
+_instance_lock_file = None
+
+def acquire_instance_lock(port: int = 8765) -> bool:
+    """
+    Ensures only ONE instance of the Option Sentinel server runs at a time.
+    Uses non-blocking OS file locking (msvcrt on Windows, fcntl on Unix) and
+    socket connectivity checks to prevent port conflicts and SQLite database corruption.
+    """
+    global _instance_lock_file
+    lock_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".sentinel_server_{port}.lock")
+
+    # 1. Quick socket probe: check if port is already actively listening
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.settimeout(0.5)
+        probe_res = probe.connect_ex(("127.0.0.1", port))
+        probe.close()
+        if probe_res == 0:
+            existing_pid = "Unknown"
+            if os.path.exists(lock_path):
+                try:
+                    with open(lock_path, "r", encoding="utf-8") as f:
+                        existing_pid = f.read().strip()
+                except Exception:
+                    pass
+            print("\n" + "=" * 80)
+            print(f"[!] OPTION SENTINEL SERVER IS ALREADY RUNNING!")
+            print(f"    Port {port} is active and listening.")
+            print(f"    Existing Server PID : {existing_pid}")
+            print(f"    Dashboard URL       : http://127.0.0.1:{port}/")
+            print("    To close the running instance in PowerShell:")
+            if existing_pid != "Unknown":
+                print(f"      Stop-Process -Id {existing_pid} -Force")
+            else:
+                print(f"      Get-Process python* | Stop-Process -Force")
+            print("=" * 80 + "\n")
+            return False
+    except Exception:
+        pass
+
+    # 2. OS-level exclusive file lock
+    try:
+        _instance_lock_file = open(lock_path, "w", encoding="utf-8")
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(_instance_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(_instance_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _instance_lock_file.write(str(os.getpid()))
+        _instance_lock_file.flush()
+        return True
+    except (IOError, OSError):
+        existing_pid = "Unknown"
+        if os.path.exists(lock_path):
+            try:
+                with open(lock_path, "r", encoding="utf-8") as f:
+                    existing_pid = f.read().strip()
+            except Exception:
+                pass
+        print("\n" + "=" * 80)
+        print(f"[!] OPTION SENTINEL SERVER IS ALREADY RUNNING!")
+        print(f"    Lockfile .sentinel_server_{port}.lock is held by an active process.")
+        print(f"    Existing Server PID : {existing_pid}")
+        print(f"    Dashboard URL       : http://127.0.0.1:{port}/")
+        print("    To close the running instance in PowerShell:")
+        if existing_pid != "Unknown":
+            print(f"      Stop-Process -Id {existing_pid} -Force")
+        else:
+            print(f"      Get-Process python* | Stop-Process -Force")
+        print("=" * 80 + "\n")
+        return False
+
 def get_lan_ip() -> str:
     """Detects the primary LAN IP address so phones/tablets on Wi-Fi can connect."""
     try:
@@ -1965,11 +2138,39 @@ def main():
     parser = argparse.ArgumentParser(description="Live Option Sentinel & Strike Selector Agent.")
     parser.add_argument("--server", action="store_true", default=True, help="Run live HTTP UI dashboard server.")
     parser.add_argument("--cli", action="store_true", help="Run terminal scan mode.")
-    parser.add_argument("--schwab-auth", nargs="?", const="FROM_ENV", default="", help="Activate 7-day Schwab token (reads SCHWAB_CALLBACK_URL from .env, or pass callback URL directly).")
+    parser.add_argument("--schwab-auth", nargs="?", const="FROM_ENV", default="", help="Activate 7-day Schwab token (reads SCHWAB_CALLBACK_URL from account environment variables or .env, or pass callback URL directly).")
+    parser.add_argument("--auto-auth", action="store_true", help="Launch 1-click Schwab browser authentication with automatic local redirect capture.")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host interface to bind (0.0.0.0 for all devices).")
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8765)), help="Port for dashboard (default: 8765).")
 
     args = parser.parse_args()
+
+    if args.auto_auth:
+        from schwab_auto_auth import run_interactive_1click_auth
+        ok, msg = run_interactive_1click_auth()
+        if ok:
+            print(f"\nSUCCESS: {msg}")
+        else:
+            print(f"\nERROR: {msg}")
+        return
+
+    if args.schwab_auth:
+        print("\n[SCHWAB OAUTH EXCHANGE]")
+        from live_market_data import SchwabReadOnlyClient, TokenBucketRateLimiter
+        sc = SchwabReadOnlyClient(TokenBucketRateLimiter(8, 60))
+        target_input = "" if args.schwab_auth == "FROM_ENV" else args.schwab_auth
+        ok, msg = sc.exchange_code_from_redirect(target_input)
+        if ok:
+            print(f"SUCCESS: {msg}")
+            print(f"Saved 7-day token to git-ignored schwab_tokens.json.")
+        else:
+            print(f"ERROR: {msg}")
+        return
+
+    # Pre-check: If running server, ensure port 8765 is not already in use by another instance
+    if not args.cli and not args.schwab_auth and args.server:
+        if not acquire_instance_lock(args.port):
+            return
 
     # Always rebuild positions.csv from the newest CSV in the Fidelity/ folder on startup
     try:
@@ -1983,20 +2184,6 @@ def main():
 
     scanner = StrategyScanner()
     sentinel = GammaDangerSentinel(scanner, positions_file="positions.csv")
-
-    if args.schwab_auth:
-        print("\n[SCHWAB OAUTH EXCHANGE]")
-        target_input = "" if args.schwab_auth == "FROM_ENV" else args.schwab_auth
-        ok, msg = scanner.market_client.schwab_client.exchange_code_from_redirect(target_input)
-        if ok:
-            print(f"SUCCESS: {msg}")
-            print(f"Saved 7-day token to git-ignored schwab_tokens.json.")
-        else:
-            print(f"ERROR: {msg}")
-        return
-
-    # Initial Sentinel Audit
-    sentinel.audit_manual_positions(emit_stderr=True)
 
     if args.cli:
         print("\n\033[96;1m=== LIVE OPTION SENTINEL SCAN (100% REAL MARKET DATA) ===\033[0m")
@@ -2021,7 +2208,7 @@ def main():
         server_address = (args.host, port)
 
         class ReusableTCPServer(socketserver.ThreadingTCPServer):
-            allow_reuse_address = True
+            allow_reuse_address = False  # Prevent duplicate instances from hijacking port 8765
             daemon_threads = True
             block_on_close = False
 
@@ -2030,6 +2217,17 @@ def main():
         print(f"    On This PC          : http://127.0.0.1:{port}/")
         print(f"    Phone / iPad / Wi-Fi: http://{lan_ip}:{port}/")
         print(f"    Feed Mode           : 100% REAL LIVE MARKET DATA (ZERO SIMULATION)")
+        schwab_st = scanner.market_client.schwab_client.get_status()
+        if schwab_st.get("connected"):
+            print(f"    Schwab Connection   : [CONNECTED] ToS Live Feed ({schwab_st.get('days_remaining')}d {schwab_st.get('hours_remaining')}h left)")
+        else:
+            print(f"    Schwab Connection   : [DISCONNECTED / EXPIRED] {schwab_st.get('status_label')}")
+            print(f"    Feed Fallback       : Yahoo Finance Live (Active)")
+            issue_msg = schwab_st.get("issue")
+            if issue_msg:
+                print(f"    Schwab Diagnostic   : {issue_msg}")
+            print(f"    To Reconnect Schwab : Open http://127.0.0.1:{port}/ (Paper Trading HUD) or run:")
+            print(f"                          python option_sentinel.py --schwab-auth")
         print(f"    Manual Positions    : positions.csv (Manageable from any browser)")
         print(f"    Stop Server         : Press Ctrl+C to exit immediately")
         print(f"================================================================================")

@@ -497,7 +497,7 @@
     <div id="panel-positions" class="hidden bg-[#0e172a] border-2 border-slate-600 rounded-2xl p-6 shadow-xl space-y-6">
       <div class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-700 pb-4">
         <div>
-          <h2 class="text-xl md:text-2xl font-black text-white">Equity Holdings, Net Delta &amp; Option Positions</h2>
+          <h2 class="text-xl md:text-2xl font-black text-white">Portfolio Holdings: Unified Exposure &amp; Positions</h2>
           <p class="text-sm font-bold text-slate-300">
             Unified tracking of your <span class="text-cyan-300 font-black">Equity Shares</span> + <span class="text-yellow-300 font-black">Option Contracts</span> across all accounts using the exact same cached live ticker feeds (zero extra API calls).
           </p>
@@ -507,22 +507,74 @@
         </button>
       </div>
 
+      <!-- SAFE INCOME & BUYING POWER SAFETY HUD (SPAXX/FDRXX SWEEP & 40% GUARDRAIL) -->
+      <div id="cashSafetyHud" class="bg-[#090d16] border-2 border-emerald-500 rounded-xl p-4 space-y-3 shadow-lg">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 pb-2.5">
+          <div class="flex items-center space-x-2.5">
+            <span class="text-2xl">🛡️</span>
+            <div>
+              <h3 class="text-base md:text-lg font-black text-emerald-300">
+                Safe Income &amp; Buying Power Safety Radar
+              </h3>
+              <p class="text-xs text-slate-300">
+                Automatic Money Market yield (<code class="text-cyan-300 font-bold">SPAXX/FDRXX @ 4.75% APY</code>) + Institutional 40% Collateral Guardrail.
+              </p>
+            </div>
+          </div>
+          <div id="cashSafetyBadge" class="px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-black border border-white">
+            🟢 SAFE: &lt;40% COLLATERAL LOCKED
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
+            <div class="text-[11px] font-bold text-slate-400 uppercase">Gross Money Market Cash</div>
+            <div id="safeCashGross" class="text-lg font-black text-cyan-300 font-mono">$0.00</div>
+            <div class="text-[10px] text-slate-400">SPAXX &bull; FDRXX Sweep</div>
+          </div>
+          <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
+            <div class="text-[11px] font-bold text-slate-400 uppercase">Guaranteed Cash Yield (SPAXX)</div>
+            <div id="safeCashYieldAnnual" class="text-lg font-black text-emerald-300 font-mono">+$0.00/yr</div>
+            <div id="safeCashYieldMonthly" class="text-[11px] text-yellow-300 font-bold font-mono">+$0.00/mo 100% Risk-Free</div>
+          </div>
+          <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
+            <div class="text-[11px] font-bold text-slate-400 uppercase">Active CSP Collateral Locked</div>
+            <div id="safeCollateralLocked" class="text-lg font-black text-amber-300 font-mono">$0.00</div>
+            <div id="safeDryPowderRemaining" class="text-[11px] text-slate-300 font-mono">$0.00 Free Dry Powder</div>
+          </div>
+          <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
+            <div class="text-[11px] font-bold text-slate-400 uppercase">Buying Power Deployed</div>
+            <div id="safeUtilizationPct" class="text-lg font-black text-white font-mono">0.0%</div>
+            <div id="safeUtilizationBarWrap" class="w-full bg-slate-800 rounded-full h-2 mt-1.5 overflow-hidden">
+              <div id="safeUtilizationBar" class="bg-emerald-400 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- COMBINED EQUITY + OPTION SYNERGY: NET DELTA & COVERED CALL CAPACITY -->
       <div class="bg-[#090d16] border-2 border-cyan-500 rounded-xl p-5 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 pb-3">
           <div>
             <h3 class="text-lg md:text-xl font-black text-cyan-300">
-              📊 Combined Equity &amp; Option Exposure: Net Delta &amp; Covered Call Capacity
+              🌳 Unified Portfolio Holdings &amp; Risk Tree
             </h3>
             <p class="text-xs md:text-sm text-slate-300 font-bold">
               Formula: <code class="text-yellow-300 bg-slate-900 px-2 py-0.5 rounded">Net Share &Delta; = Shares Held + &Sigma;(Option Contracts &times; 100 &times; &Delta;)</code> &bull; <code class="text-emerald-300 bg-slate-900 px-2 py-0.5 rounded">CC Capacity = &lfloor;Shares/100&rfloor; + LEAPs &minus; Short Calls</code>
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-3">
+            <button onclick="toggleAllExposureRows()" id="toggleAllRowsBtn" class="px-3.5 py-1.5 bg-yellow-400 hover:bg-yellow-300 text-black text-xs md:text-sm font-black rounded-xl border border-white shadow transition whitespace-nowrap">▼ Expand All</button>
             <div class="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border-2 border-cyan-400 shadow">
               <label for="equityAccountFilter" class="text-xs md:text-sm font-black text-yellow-300 uppercase whitespace-nowrap">Filter Account:</label>
               <select id="equityAccountFilter" onchange="onAccountFilterChange(this.value)" class="bg-slate-950 border border-slate-600 rounded-lg px-3 py-1 text-sm text-cyan-300 font-black focus:outline-none focus:border-cyan-400">
                 <option value="ALL">All Accounts (Consolidated)</option>
+              </select>
+            </div>
+            <div class="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border-2 border-yellow-400 shadow">
+              <label for="equityTickerFilter" class="text-xs md:text-sm font-black text-yellow-300 uppercase whitespace-nowrap">Filter Ticker:</label>
+              <select id="equityTickerFilter" onchange="onTickerFilterChange(this.value)" class="bg-slate-950 border border-slate-600 rounded-lg px-3 py-1 text-sm text-yellow-300 font-black focus:outline-none focus:border-yellow-400">
+                <option value="ALL">All Tickers</option>
               </select>
             </div>
             <span class="px-3 py-1 rounded-lg bg-cyan-500 text-black font-black text-xs">
@@ -540,8 +592,8 @@
       </div>
 
       <!-- Add Position Form (Works from Phone / Tablet / PC) -->
-      <div class="bg-[#090d16] border-2 border-yellow-500 rounded-xl p-5 space-y-4">
-        <h3 class="text-lg font-black text-yellow-300">+ Add Manual Equity or Option Position to Live Monitor</h3>
+      <details class="bg-[#090d16] border-2 border-yellow-500 rounded-xl p-4 space-y-4">
+        <summary class="cursor-pointer text-base md:text-lg font-black text-yellow-300 flex items-center justify-between select-none"><span>➕ Add Manual Equity or Option Position (Form)</span><span class="text-xs text-slate-400">▼ Click to toggle form</span></summary>
         <div class="grid grid-cols-2 md:grid-cols-7 gap-4 text-sm font-bold">
           <div>
             <label class="block text-slate-300 mb-1">Account</label>
@@ -602,7 +654,7 @@
         </button>
       </div>
 
-      <div id="manualPositionsContainer" class="bg-[#090d16] border-2 border-slate-700 rounded-xl p-6 text-center space-y-3">
+      <div id="manualPositionsContainer" class="hidden">
         <p class="text-lg font-bold text-emerald-300">Loading Fidelity Equity (&ge;100sh) &amp; Option Positions from <code class="text-yellow-300 font-mono">positions.csv</code>...</p>
         <p class="text-sm text-slate-300 max-w-xl mx-auto">
           Click <strong>📂 Sync Latest Fidelity CSV</strong> above anytime you drop a new Fidelity export into the <code class="text-cyan-300 font-mono">Fidelity/</code> folder.
@@ -995,6 +1047,31 @@
         </div>
 
         <div class="space-y-3 text-xs text-slate-200">
+          <!-- 1-CLICK AUTOMATIC AUTH (RECOMMENDED) -->
+          <div class="bg-gradient-to-r from-emerald-950/70 to-cyan-950/70 border-2 border-emerald-400 p-4 rounded-xl space-y-2.5 shadow-lg">
+            <div class="flex items-center justify-between">
+              <div class="font-black text-white text-sm flex items-center space-x-2">
+                <span class="text-xl">⚡</span>
+                <span>EASY: 1-Click Auto Re-Auth</span>
+              </div>
+              <span class="text-[10px] font-black bg-emerald-400 text-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">No Copy-Paste Needed</span>
+            </div>
+            <p class="text-slate-300 text-xs">
+              Click below. The dashboard will automatically launch Schwab's login in your browser, catch your authorization in 0.1s, and renew your 7-day token.
+            </p>
+            <button type="button" onclick="trigger1ClickAutoAuth()" id="btn1ClickAutoAuth" class="w-full py-2.5 bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-black font-black text-xs rounded-xl shadow-lg transition flex items-center justify-center space-x-2">
+              <span class="text-sm">⚡</span>
+              <span>Launch 1-Click Schwab Re-Auth</span>
+            </button>
+            <div id="autoAuthStatus" class="hidden p-2.5 rounded text-xs font-mono"></div>
+          </div>
+
+          <div class="flex items-center space-x-2 text-slate-400 text-[11px] font-bold">
+            <div class="h-px bg-slate-700 flex-1"></div>
+            <span>OR MANUAL URL FALLBACK</span>
+            <div class="h-px bg-slate-700 flex-1"></div>
+          </div>
+
           <div class="bg-cyan-950/40 border border-cyan-500/50 p-3 rounded-xl space-y-2">
             <div class="font-bold text-white text-sm">Step 1: Ensure API Products Are Enabled</div>
             <p class="text-slate-300">
@@ -1048,11 +1125,18 @@
     let latestEquityExposure = null;
     let latestManualPositions = null;
     let selectedEquityAccount = 'ALL';
+    let selectedEquityTicker = 'ALL';
+    try {
+      const savedTicker = localStorage.getItem('selectedEquityTicker');
+      if (savedTicker) selectedEquityTicker = savedTicker;
+    } catch (e) {}
     try {
       const savedAcc = localStorage.getItem('selectedEquityAccount');
       if (savedAcc) selectedEquityAccount = savedAcc;
     } catch (e) {}
     let latestBetaSummary = null;
+    let expandedTreeGroups = new Set();
+    let allTreeRowsExpanded = true;
     let soundEnabled = localStorage.getItem('sentinel_sound_enabled') !== 'false';
     let notifiedTriggersSet = new Set();
     let audioCtx = null;
@@ -1198,6 +1282,24 @@
         return `${dte} DTE`;
       }
       return '';
+    }
+
+    function onTickerFilterChange(val) {
+      selectedEquityTicker = val;
+      try {
+        localStorage.setItem('selectedEquityTicker', val);
+      } catch (e) {}
+      renderEquityExposureSection();
+      renderManualPositionsSection();
+      const posSymEl = document.getElementById('posSymbol');
+      if (posSymEl && val !== 'ALL') {
+        for (let opt of posSymEl.options) {
+          if (opt.value === val) {
+            posSymEl.value = val;
+            break;
+          }
+        }
+      }
     }
 
     function onAccountFilterChange(val) {
@@ -1550,9 +1652,249 @@
       }).join('');
     }
 
+    function toggleTreeGroup(key) {
+      const childRow = document.getElementById(`child-row-${key}`);
+      const caret = document.getElementById(`caret-${key}`);
+      if (!childRow) return;
+      if (childRow.classList.contains('hidden')) {
+        childRow.classList.remove('hidden');
+        if (caret) caret.innerText = '▼';
+        expandedTreeGroups.add(key);
+      } else {
+        childRow.classList.add('hidden');
+        if (caret) caret.innerText = '▶';
+        expandedTreeGroups.delete(key);
+      }
+    }
+
+    function toggleAllExposureRows() {
+      allTreeRowsExpanded = !allTreeRowsExpanded;
+      const btn = document.getElementById('toggleAllRowsBtn');
+      if (btn) btn.innerText = allTreeRowsExpanded ? '▶ Collapse All' : '▼ Expand All';
+      const childRows = document.querySelectorAll('[id^="child-row-"]');
+      const carets = document.querySelectorAll('[id^="caret-"]');
+      childRows.forEach(row => {
+        const key = row.id.replace('child-row-', '');
+        if (allTreeRowsExpanded) {
+          row.classList.remove('hidden');
+          expandedTreeGroups.add(key);
+        } else {
+          row.classList.add('hidden');
+          expandedTreeGroups.delete(key);
+        }
+      });
+      carets.forEach(c => {
+        c.innerText = allTreeRowsExpanded ? '▼' : '▶';
+      });
+    }
+
+    function buildUnifiedTreeRows(rows) {
+      return (rows || []).map((row, rowIdx) => {
+        const groupKey = `${row.symbol}_${(row.accounts || 'all').replace(/[^a-zA-Z0-9]/g, '_')}_${rowIdx}`;
+        if (!expandedTreeGroups.has(groupKey) && allTreeRowsExpanded) {
+          expandedTreeGroups.add(groupKey);
+        }
+        const isExpanded = expandedTreeGroups.has(groupKey);
+
+        const childPositions = (latestManualPositions || []).filter(p => {
+          if (!p.symbol || p.symbol.trim().toUpperCase() !== row.symbol.trim().toUpperCase()) return false;
+          if (row.accounts && row.accounts !== 'All Accounts') {
+            const accts = row.accounts.split(',').map(s => s.trim().toUpperCase());
+            if (p.account && !accts.includes(p.account.trim().toUpperCase())) return false;
+          }
+          return true;
+        });
+
+        const isCspOnly = (row.shares === 0 && row.long_leap_calls === 0);
+        let ccBadge = '';
+        if (row.covered_call_capacity > 0) {
+          ccBadge = `<span class="px-2.5 py-1 rounded-lg bg-emerald-500 text-black font-black text-xs">${row.covered_call_capacity}x CC READY</span>`;
+        } else if (isCspOnly) {
+          ccBadge = `<span class="px-2.5 py-1 rounded-lg bg-purple-900/80 text-purple-200 border border-purple-500 font-black text-xs">CSP ONLY</span>`;
+        } else {
+          ccBadge = `<span class="px-2.5 py-1 rounded-lg bg-slate-700 text-slate-200 font-black text-xs">COVERED</span>`;
+        }
+
+        const deltaColor = row.net_delta_shares >= 0 ? 'text-emerald-300' : 'text-rose-400';
+        const pnlColor = row.total_pnl_dollars >= 0 ? 'text-emerald-300' : 'text-red-400';
+        const expDte = formatExpDate(row.cc_expiration || row.cc_contract, row.cc_dte);
+        const exit50 = row.cc_exit_target_50 ? row.cc_exit_target_50.toFixed(2) : (row.cc_mid * 0.5).toFixed(2);
+
+        let whenBadge = '';
+        if (row.when_to_sell) {
+          if (row.when_to_sell.includes('DO NOT SELL') || row.when_to_sell.includes('BELOW COST BASIS')) {
+            whenBadge = `<div class="inline-block px-2 py-0.5 rounded bg-rose-950/90 border border-rose-500 text-rose-300 font-black text-xs mb-1">🛑 ${row.when_to_sell}</div>`;
+          } else if (row.when_to_sell.includes('WAIT FOR BOUNCE')) {
+            whenBadge = `<div class="inline-block px-2 py-0.5 rounded bg-amber-950/90 border border-amber-500 text-amber-300 font-black text-xs mb-1">⏳ ${row.when_to_sell}</div>`;
+          } else if (isCspOnly) {
+            whenBadge = `<div class="inline-block px-2 py-0.5 rounded bg-purple-950/90 border border-purple-500 text-purple-300 font-black text-xs mb-1">🛡️ CSP ONLY</div>`;
+          } else {
+            whenBadge = `<div class="text-cyan-300 font-black text-xs mb-1">⏰ ${row.when_to_sell}</div>`;
+          }
+        }
+
+        const acctBreakdownHtml = (row.account_cc_breakdown && row.account_cc_breakdown.length > 0)
+          ? `<div class="mt-1 space-y-0.5 text-[11px] text-slate-200 font-mono">${row.account_cc_breakdown.map(b => `<div>• ${b}</div>`).join('')}</div>`
+          : `<div class="text-xs text-slate-300 font-bold">${row.accounts}</div>`;
+        const basisNote = (row.shares > 0 && row.avg_equity_cost_basis > 0)
+          ? `<br><span class="text-xs text-yellow-300 font-mono">Avg Basis: $${row.avg_equity_cost_basis.toFixed(2)}</span>`
+          : '';
+        const warningsHtml = (row.cost_basis_warnings && row.cost_basis_warnings.length > 0)
+          ? `<div class="mt-1.5 p-1.5 rounded bg-red-950/90 border border-red-500 text-amber-300 text-xs font-black space-y-0.5">${row.cost_basis_warnings.map(w => `<div>${w}</div>`).join('')}</div>`
+          : '';
+
+        let suggestedCell = '';
+        if (isCspOnly) {
+          suggestedCell = `
+            <td class="py-3 px-3 font-mono text-xs">
+              <div class="p-2 rounded bg-slate-900 border border-purple-500/50 text-slate-300 space-y-0.5">
+                <span class="text-purple-300 font-black text-xs">🛡️ CSP ONLY</span><br>
+                <span class="text-[11px] text-slate-400">0 shares held (-${row.short_puts} CSP). CCs unlocked upon assignment.</span>
+              </div>
+            </td>
+          `;
+        } else if (row.cc_contract === 'NONE' || !row.cc_is_suggestion || row.cc_strike <= 0) {
+          suggestedCell = `
+            <td class="py-3 px-3 font-mono text-xs">
+              <div class="p-2 rounded bg-slate-900 border border-slate-700 text-slate-300 space-y-0.5">
+                <span class="text-amber-400 font-black text-xs">🛡️ NO CALL SUGGESTED</span><br>
+                <span class="text-[11px] text-slate-400">Underwater below basis. Hold shares for rebound.</span>
+              </div>
+            </td>
+          `;
+        } else {
+          suggestedCell = `
+            <td class="py-3 px-3 font-mono text-xs text-yellow-300">
+              <span class="text-amber-300 font-black text-[11px]">💡 SUGGESTED NEW TRADE (not held)</span><br>
+              <span class="text-white font-black">$${row.cc_strike} Call @ $${row.cc_mid.toFixed(2)}</span><br>
+              <span class="text-cyan-300 font-bold">Exp: ${expDte}</span><br>
+              ${row.cc_floor_applied ? `<span class="text-emerald-300 text-[11px]">✓ Strike ≥ $${row.cc_breakeven_floor.toFixed(2)} breakeven</span><br>` : ''}
+              <span class="text-emerald-300">50% Exit: $${exit50} | ${row.cc_contract}</span>
+            </td>
+          `;
+        }
+
+        let childRowsTable = '';
+        if (childPositions.length === 0) {
+          childRowsTable = `<div class="p-3 text-center text-slate-400 text-xs italic">No individual contract records found for this holding.</div>`;
+        } else {
+          const childTrs = childPositions.map(pos => {
+            const isEq = pos.option_type === 'EQUITY';
+            let badgeBg = 'bg-slate-700 text-white';
+            if (isEq) {
+              if (pos.status && pos.status.includes('COVERED:')) badgeBg = 'bg-slate-800 text-cyan-300 border border-cyan-500/60 font-black';
+              else if (pos.status && pos.status.includes('WRITE COVERED CALL')) badgeBg = 'bg-yellow-400 text-black font-black';
+              else badgeBg = 'bg-cyan-500 text-black';
+            }
+            else if (pos.gamma_danger) badgeBg = 'bg-red-500 text-white animate-pulse';
+            else if (pos.profit_target_hit) badgeBg = 'bg-emerald-500 text-black';
+            else if (pos.roll_radar_21) badgeBg = 'bg-amber-400 text-black';
+            else if (pos.contracts > 0) badgeBg = 'bg-purple-600 text-white';
+
+            const optTitle = isEq
+              ? `<span class="text-cyan-300 font-black">${pos.symbol} Equity Shares</span>`
+              : `<span class="text-white font-black">${pos.symbol} $${pos.strike} ${pos.option_type}</span>`;
+            const expText = isEq
+              ? `<span class="text-cyan-300 font-mono font-bold">SHARES (CORE)</span>`
+              : `<span class="text-slate-200 font-mono">${formatExpDate(pos.expiration, pos.dte)}</span>`;
+            const qtyText = isEq
+              ? `<span class="text-cyan-300 font-mono font-black">+${pos.contracts} sh</span>`
+              : `<span class="font-mono font-black ${pos.contracts > 0 ? 'text-purple-300' : 'text-amber-300'}">${pos.contracts > 0 ? '+' + pos.contracts : pos.contracts}</span>`;
+            const pnlStr = `$${pos.pnl_dollars >= 0 ? '+' : ''}${pos.pnl_dollars.toFixed(2)} (${pos.pnl_pct.toFixed(1)}%)`;
+            const pnlCls = pos.pnl_dollars >= 0 ? 'text-emerald-300' : 'text-red-400';
+
+            const rollAlert = pos.roll_plan
+              ? `<div class="mt-1 p-1.5 rounded bg-amber-950/90 border border-yellow-500/80 text-yellow-300 text-[11px] font-mono">
+                   <span class="font-black text-amber-300">🎯 Roll Ticket:</span> ${pos.roll_plan}
+                 </div>`
+              : '';
+
+            return `
+              <tr class="border-b border-slate-800 hover:bg-slate-900/60 transition">
+                <td class="py-2 px-2 text-slate-300 font-mono text-xs whitespace-nowrap">${pos.account || 'Manual'}</td>
+                <td class="py-2 px-2">
+                  <div class="text-xs font-bold">${optTitle}</div>
+                  ${rollAlert}
+                </td>
+                <td class="py-2 px-2 text-xs">${expText}</td>
+                <td class="py-2 px-2 text-xs">${qtyText}</td>
+                <td class="py-2 px-2 font-mono text-xs text-yellow-300">$${pos.entry_premium.toFixed(2)} &rarr; $${pos.current_mid.toFixed(2)}</td>
+                <td class="py-2 px-2 font-mono font-black text-xs ${pnlCls}">${pnlStr}</td>
+                <td class="py-2 px-2">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-black ${badgeBg}">${pos.status}</span>
+                </td>
+                <td class="py-2 px-2 text-right">
+                  <button onclick="event.stopPropagation(); deletePositionFromUI(${pos.index});" class="px-2.5 py-1 bg-red-700 hover:bg-red-600 text-white text-[11px] font-black rounded shadow transition">
+                    ✖ Remove
+                  </button>
+                </td>
+              </tr>
+            `;
+          }).join('');
+
+          childRowsTable = `
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs font-bold">
+                <thead>
+                  <tr class="text-slate-400 uppercase text-[10px] border-b border-slate-800 bg-slate-900/80">
+                    <th class="py-1 px-2">Account</th>
+                    <th class="py-1 px-2">Position / Contract</th>
+                    <th class="py-1 px-2">Expiration / DTE</th>
+                    <th class="py-1 px-2">Qty</th>
+                    <th class="py-1 px-2">Entry &rarr; Live Mid</th>
+                    <th class="py-1 px-2">Live P&amp;L</th>
+                    <th class="py-1 px-2">Greeks / Status</th>
+                    <th class="py-1 px-2 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>${childTrs}</tbody>
+              </table>
+            </div>
+          `;
+        }
+
+        return `
+          <tr class="border-b border-slate-700 hover:bg-slate-800/40 cursor-pointer select-none transition" onclick="toggleTreeGroup('${groupKey}')">
+            <td class="py-3 px-3">
+              <div class="flex items-center space-x-2">
+                <span id="caret-${groupKey}" class="text-cyan-400 font-black text-sm">${isExpanded ? '▼' : '▶'}</span>
+                <span class="text-xl font-black text-white hover:text-cyan-300 transition">${row.symbol}</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-800 text-yellow-300 border border-slate-600">${childPositions.length} pos</span>
+              </div>
+              ${row.earnings_warning ? `<div class="mt-1"><span class="inline-block px-1.5 py-0.5 rounded bg-amber-950/90 border border-amber-500 text-amber-300 text-[10px] font-black">${row.earnings_warning}</span></div>` : ''}
+            </td>
+            <td class="py-3 px-3 text-xs text-slate-300 font-bold">${acctBreakdownHtml}</td>
+            <td class="py-3 px-3 font-mono text-yellow-300">$${row.spot.toFixed(2)} <span class="text-xs text-slate-300">(RSI ${row.rsi_14.toFixed(0)} | IVR ${row.iv_rank.toFixed(0)}%)</span></td>
+            <td class="py-3 px-3 font-mono text-cyan-300 font-black">${row.shares} sh <span class="text-xs text-slate-300">($${row.equity_market_value.toLocaleString()})</span>${basisNote}</td>
+            <td class="py-3 px-3 font-mono text-purple-300">+${row.long_leap_calls} LEAP / -${row.short_calls} CC / -${row.short_puts} CSP</td>
+            <td class="py-3 px-3 font-mono font-black ${deltaColor}">
+              <div>${row.net_delta_shares >= 0 ? '+' : ''}${row.net_delta_shares.toFixed(1)} sh &Delta; <span class="text-xs text-slate-300">($${Math.round(row.net_notional_exposure).toLocaleString()})</span></div>
+              <div class="text-xs text-yellow-300 font-bold mt-0.5">&beta; ${(row.beta || 1.0).toFixed(2)} &rarr; <span class="${(row.spy_delta_shares || 0) >= 0 ? 'text-emerald-300' : 'text-rose-400'}">${(row.spy_delta_shares || 0) >= 0 ? '+' : ''}${row.spy_delta_shares || 0} SPY &Delta;</span></div>
+            </td>
+            <td class="py-3 px-3 font-mono">${ccBadge}</td>
+            ${suggestedCell}
+            <td class="py-3 px-3 font-mono font-black ${pnlColor}">$${row.total_pnl_dollars >= 0 ? '+' : ''}${row.total_pnl_dollars.toFixed(2)}</td>
+            <td class="py-3 px-3 text-xs font-bold text-white">${whenBadge}<span class="text-yellow-200">${row.directive}</span>${warningsHtml}</td>
+          </tr>
+          <tr id="child-row-${groupKey}" class="${isExpanded ? '' : 'hidden'} bg-[#040813] border-b-2 border-slate-700">
+            <td colspan="10" class="p-3 pl-6 md:pl-8">
+              <div class="border-l-4 border-cyan-400 bg-slate-950/90 rounded-r-xl p-3 shadow-inner space-y-2">
+                <div class="flex items-center justify-between text-xs font-black text-cyan-300 pb-1.5 border-b border-slate-800">
+                  <span class="uppercase tracking-wider">📋 ${row.symbol} Active Contracts &amp; Share Lots (${row.accounts || 'Consolidated'})</span>
+                  <span class="text-yellow-300 font-mono">${childPositions.length} individual position${childPositions.length === 1 ? '' : 's'}</span>
+                </div>
+                ${childRowsTable}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
     function renderEquityExposureSection() {
       const eqContainer = document.getElementById('equityExposureContainer');
       const filterSelect = document.getElementById('equityAccountFilter');
+      const tickerSelect = document.getElementById('equityTickerFilter');
       const summaryContainer = document.getElementById('equitySummaryCards');
       if (!eqContainer) return;
 
@@ -1586,18 +1928,46 @@
         }
       }
 
+      // Collect all distinct tickers from both exposure and manual positions
+      const tickersSet = new Set();
+      rawRows.forEach(r => { if (r.symbol) tickersSet.add(r.symbol.trim().toUpperCase()); });
+      (latestManualPositions || []).forEach(p => { if (p.symbol) tickersSet.add(p.symbol.trim().toUpperCase()); });
+      const tickersList = Array.from(tickersSet).sort();
+
+      if (tickerSelect) {
+        const currentTicker = selectedEquityTicker;
+        tickerSelect.innerHTML = `<option value="ALL">All Tickers</option>`
+          + tickersList.map(t => `<option value="${t}">${t}</option>`).join('');
+        if (tickersList.includes(currentTicker) || currentTicker === 'ALL') {
+          tickerSelect.value = currentTicker;
+        } else {
+          selectedEquityTicker = 'ALL';
+          tickerSelect.value = 'ALL';
+        }
+      }
+
       if (rawRows.length === 0) {
         eqContainer.innerHTML = `<p class="text-sm font-bold text-slate-300">No Equity or Option positions currently in <code class="text-yellow-300 font-mono">positions.csv</code>.</p>`;
         if (summaryContainer) summaryContainer.innerHTML = '';
         return;
       }
 
-      const isFiltered = selectedEquityAccount !== 'ALL';
+      const isAcctFiltered = selectedEquityAccount !== 'ALL';
+      const isTickerFiltered = selectedEquityTicker !== 'ALL';
+      const isFiltered = isAcctFiltered || isTickerFiltered;
       const filteredRows = isFiltered
         ? rawRows.filter(r => {
-            if (!r.accounts) return false;
-            const accts = r.accounts.split(',').map(s => s.trim());
-            return accts.includes(selectedEquityAccount);
+ 
+            if (isAcctFiltered) {
+              if (!r.accounts) return false;
+              const accts = r.accounts.split(',').map(s => s.trim());
+              if (!accts.includes(selectedEquityAccount)) return false;
+            }
+            if (isTickerFiltered) {
+              if (!r.symbol || r.symbol.trim().toUpperCase() !== selectedEquityTicker.toUpperCase()) return false;
+            }
+            return true;
+ 
           })
         : rawRows;
 
@@ -1626,8 +1996,8 @@
 
         summaryContainer.innerHTML = `
           <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
-            <div class="text-xs font-bold text-slate-400 uppercase">Filtered Account</div>
-            <div class="text-base font-black text-cyan-300 truncate">${isFiltered ? selectedEquityAccount : 'All Accounts'}</div>
+            <div class="text-xs font-bold text-slate-400 uppercase">Filtered Scope</div>
+            <div class="text-base font-black text-cyan-300 truncate">${(isAcctFiltered && isTickerFiltered) ? `${selectedEquityAccount} • ${selectedEquityTicker}` : (isAcctFiltered ? selectedEquityAccount : (isTickerFiltered ? `Ticker: ${selectedEquityTicker}` : 'All Holdings'))}</div>
             <div class="text-xs text-slate-400">${filteredRows.length} tickers</div>
           </div>
           <div class="bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-center">
@@ -1656,14 +2026,14 @@
       if (filteredRows.length === 0) {
         eqContainer.innerHTML = `
           <div class="p-6 text-center text-slate-300 font-bold">
-            No equity exposure records found for account <span class="text-cyan-300 font-black">${selectedEquityAccount}</span>.
-            <div class="mt-2"><button onclick="onAccountFilterChange('ALL')" class="px-3 py-1 bg-cyan-500 text-black font-black rounded-lg text-xs">Reset to All Accounts</button></div>
+            No equity exposure records found matching ${isAcctFiltered ? `account <span class="text-cyan-300 font-black">${selectedEquityAccount}</span>` : ''} ${isAcctFiltered && isTickerFiltered ? 'and ' : ''} ${isTickerFiltered ? `ticker <span class="text-yellow-300 font-black">${selectedEquityTicker}</span>` : ''}.
+            <div class="mt-2 flex items-center justify-center space-x-2">${isAcctFiltered ? `<button onclick="onAccountFilterChange('ALL')" class="px-3 py-1 bg-cyan-500 text-black font-black rounded-lg text-xs">Reset Account</button>` : ''} ${isTickerFiltered ? `<button onclick="onTickerFilterChange('ALL')" class="px-3 py-1 bg-yellow-400 text-black font-black rounded-lg text-xs">Reset Ticker</button>` : ''} <button onclick="onAccountFilterChange('ALL'); onTickerFilterChange('ALL');" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white font-black rounded-lg text-xs">Reset All Filters</button></div>
           </div>
         `;
         return;
       }
 
-      let eqRows = filteredRows.map(row => {
+      let eqRows = buildUnifiedTreeRows(filteredRows); /*
         const ccBadge = row.covered_call_capacity > 0
           ? `<span class="px-2.5 py-1 rounded-lg bg-emerald-500 text-black font-black text-xs">${row.covered_call_capacity}x CC READY</span>`
           : `<span class="px-2.5 py-1 rounded-lg bg-slate-700 text-slate-200 font-black text-xs">COVERED</span>`;
@@ -1727,11 +2097,12 @@
         `;
       }).join('');
 
+      */
       eqContainer.innerHTML = `
         <table class="w-full text-left text-sm md:text-base font-bold">
           <thead>
             <tr class="border-b-2 border-slate-600 text-yellow-300 uppercase text-xs md:text-sm">
-              <th class="py-2 px-3">Ticker</th>
+              <th class="py-2 px-3">Ticker &amp; Contracts (Click ▼)</th>
               <th class="py-2 px-3">Accounts</th>
               <th class="py-2 px-3">Spot (RSI / IVR)</th>
               <th class="py-2 px-3">Equity Shares</th>
@@ -1747,7 +2118,7 @@
           <tfoot>
             <tr class="border-t-2 border-cyan-400 bg-slate-900/95 text-white font-black text-xs md:text-sm">
               <td class="py-3 px-3 text-cyan-300 uppercase tracking-wide">TOTAL (${filteredRows.length} Tickers)</td>
-              <td class="py-3 px-3 text-cyan-200 font-mono">${isFiltered ? selectedEquityAccount : 'All Accounts (Consolidated)'}</td>
+              <td class="py-3 px-3 text-cyan-200 font-mono">${(isAcctFiltered && isTickerFiltered) ? `${selectedEquityAccount} • ${selectedEquityTicker}` : (isAcctFiltered ? selectedEquityAccount : (isTickerFiltered ? `Ticker: ${selectedEquityTicker}` : 'All Accounts (Consolidated)'))}</td>
               <td class="py-3 px-3 text-slate-400 font-mono">-</td>
               <td class="py-3 px-3 text-cyan-300 font-mono">${sumShares.toLocaleString()} sh <span class="text-xs text-slate-300">($${Math.round(sumMarketVal).toLocaleString()})</span></td>
               <td class="py-3 px-3 text-slate-400 font-mono">-</td>
@@ -1776,9 +2147,15 @@
         return;
       }
 
-      const isFiltered = selectedEquityAccount !== 'ALL';
+      const isAcctFiltered = selectedEquityAccount !== 'ALL';
+      const isTickerFiltered = selectedEquityTicker !== 'ALL';
+      const isFiltered = isAcctFiltered || isTickerFiltered;
       const filteredPositions = isFiltered
-        ? rawPositions.filter(p => p.account === selectedEquityAccount)
+        ? rawPositions.filter(p => {
+            if (isAcctFiltered && p.account !== selectedEquityAccount) return false;
+            if (isTickerFiltered && (!p.symbol || p.symbol.trim().toUpperCase() !== selectedEquityTicker.toUpperCase())) return false;
+            return true;
+          })
         : rawPositions;
 
       let sumPosPnl = 0.0;
@@ -1788,8 +2165,12 @@
       const pnlSign = sumPosPnl >= 0 ? '+' : '-';
       const pnlColor = sumPosPnl >= 0 ? 'text-emerald-300' : 'text-red-400';
 
+      let filterParts = [];
+      if (isAcctFiltered) filterParts.push(`account <span class="text-cyan-300 font-black">${selectedEquityAccount}</span>`);
+      if (isTickerFiltered) filterParts.push(`ticker <span class="text-yellow-300 font-black">${selectedEquityTicker}</span>`);
+      const filterDesc = filterParts.length > 0 ? filterParts.join(' & ') : 'across all accounts & tickers';
       const filterHeaderNote = isFiltered
-        ? `Showing ${filteredPositions.length} of ${rawPositions.length} positions for <span class="text-cyan-300 font-black">${selectedEquityAccount}</span> &bull; Account Positions P&amp;L: <span class="${pnlColor} font-mono font-black">${pnlSign}$${Math.abs(sumPosPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`
+        ? `Showing ${filteredPositions.length} of ${rawPositions.length} positions (${filterDesc}) &bull; Positions P&amp;L: <span class="${pnlColor} font-mono font-black">${pnlSign}$${Math.abs(sumPosPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`
         : `Showing all ${rawPositions.length} positions across accounts &bull; Total Positions P&amp;L: <span class="${pnlColor} font-mono font-black">${pnlSign}$${Math.abs(sumPosPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
 
       let rowsHtml = filteredPositions.map(pos => {
@@ -1798,6 +2179,7 @@
         if (isEquity) badgeColor = 'bg-cyan-500 text-black';
         else if (pos.gamma_danger) badgeColor = 'bg-red-500 text-white';
         else if (pos.profit_target_hit) badgeColor = 'bg-emerald-500 text-black';
+        else if (pos.roll_radar_21) badgeColor = 'bg-amber-400 text-black border border-white';
         else if (pos.contracts > 0) badgeColor = 'bg-purple-600 text-white';
 
         const posTitle = isEquity
@@ -1845,7 +2227,7 @@
         <div class="space-y-3">
           <div class="flex flex-wrap items-center justify-between text-xs md:text-sm font-bold text-slate-300 px-1">
             <div>${filterHeaderNote}</div>
-            ${isFiltered ? `<button onclick="onAccountFilterChange('ALL')" class="text-xs text-cyan-400 hover:text-cyan-300 underline font-black">Reset to All Accounts</button>` : ''}
+            ${isFiltered ? `<div class="flex items-center space-x-2">${isAcctFiltered ? `<button onclick="onAccountFilterChange('ALL')" class="text-xs text-cyan-400 hover:text-cyan-300 underline font-black">Reset Account</button>` : ''} ${isTickerFiltered ? `<button onclick="onTickerFilterChange('ALL')" class="text-xs text-yellow-400 hover:text-yellow-300 underline font-black">Reset Ticker</button>` : ''} <button onclick="onAccountFilterChange('ALL'); onTickerFilterChange('ALL');" class="text-xs text-slate-400 hover:text-white underline font-black">Reset All</button></div>` : ''}
           </div>
           <div class="overflow-x-auto text-left">
             <table class="w-full text-sm md:text-base font-bold">
@@ -1864,13 +2246,13 @@
               <tbody>${rowsHtml}</tbody>
               <tfoot>
                 <tr class="border-t-2 border-slate-600 bg-slate-900/80 text-white font-black text-xs md:text-sm">
-                  <td class="py-2.5 px-3 text-cyan-300 font-mono">${isFiltered ? selectedEquityAccount : 'All Accounts'}</td>
+                  <td class="py-2.5 px-3 text-cyan-300 font-mono">${(isAcctFiltered && isTickerFiltered) ? `${selectedEquityAccount} • ${selectedEquityTicker}` : (isAcctFiltered ? selectedEquityAccount : (isTickerFiltered ? selectedEquityTicker : 'All Accounts'))}</td>
                   <td class="py-2.5 px-3 uppercase text-slate-300">${filteredPositions.length} Positions</td>
                   <td class="py-2.5 px-3 text-slate-400 font-mono">-</td>
                   <td class="py-2.5 px-3 text-slate-400 font-mono">-</td>
                   <td class="py-2.5 px-3 text-slate-400 font-mono">-</td>
                   <td class="py-2.5 px-3 font-mono font-black ${sumPosPnl >= 0 ? 'text-emerald-300' : 'text-red-400'}">${pnlSign}$${Math.abs(sumPosPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  <td class="py-2.5 px-3 text-xs text-yellow-300" colspan="2">Positions P&amp;L Total (${isFiltered ? selectedEquityAccount : 'Consolidated'})</td>
+                  <td class="py-2.5 px-3 text-xs text-yellow-300" colspan="2">Positions P&amp;L Total (${(isAcctFiltered && isTickerFiltered) ? `${selectedEquityAccount} • ${selectedEquityTicker}` : (isAcctFiltered ? selectedEquityAccount : (isTickerFiltered ? selectedEquityTicker : 'Consolidated'))})</td>
                 </tr>
               </tfoot>
             </table>
@@ -1879,7 +2261,59 @@
       `;
     }
 
+    function renderCashSafetySection(cs) {
+      if (!cs) return;
+      const cashGrossEl = document.getElementById('safeCashGross');
+      const yieldAnnEl = document.getElementById('safeCashYieldAnnual');
+      const yieldMoEl = document.getElementById('safeCashYieldMonthly');
+      const collatEl = document.getElementById('safeCollateralLocked');
+      const powderEl = document.getElementById('safeDryPowderRemaining');
+      const utilPctEl = document.getElementById('safeUtilizationPct');
+      const utilBar = document.getElementById('safeUtilizationBar');
+      const badge = document.getElementById('cashSafetyBadge');
+
+      const netCash = cs.total_trading_net_cash || 0.0;
+      const collat = cs.total_csp_collateral || 0.0;
+      const powder = cs.dry_powder_remaining || 0.0;
+      const utilPct = cs.utilization_pct || 0.0;
+
+      if (cashGrossEl) cashGrossEl.innerText = `$${Math.round(netCash).toLocaleString()}`;
+      if (yieldAnnEl) yieldAnnEl.innerText = `+$${Math.round(cs.annual_cash_yield_dollars || (netCash * 0.0475)).toLocaleString()}/yr`;
+      if (yieldMoEl) yieldMoEl.innerText = `+$${Math.round((cs.annual_cash_yield_dollars || (netCash * 0.0475)) / 12).toLocaleString()}/mo @ 4.75% SPAXX`;
+      if (collatEl) collatEl.innerText = `$${Math.round(collat).toLocaleString()}`;
+      if (powderEl) powderEl.innerText = `$${Math.round(powder).toLocaleString()} Free Dry Powder`;
+      if (utilPctEl) utilPctEl.innerText = `${utilPct.toFixed(1)}% Deployed`;
+
+      const barWidth = Math.min(100, Math.max(2, utilPct));
+      if (utilBar) {
+        utilBar.style.width = `${barWidth}%`;
+        if (utilPct < 40) {
+          utilBar.className = 'bg-emerald-400 h-2 rounded-full transition-all duration-500';
+        } else if (utilPct <= 60) {
+          utilBar.className = 'bg-amber-400 h-2 rounded-full transition-all duration-500';
+        } else {
+          utilBar.className = 'bg-rose-500 h-2 rounded-full transition-all duration-500';
+        }
+      }
+
+      if (badge) {
+        if (utilPct < 40) {
+          badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-black border border-white';
+          badge.innerText = `🟢 SAFE: ${utilPct.toFixed(1)}% COLLATERAL LOCKED (<40% TARGET)`;
+        } else if (utilPct <= 60) {
+          badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-amber-400 text-black border border-white';
+          badge.innerText = `🟡 MODERATE: ${utilPct.toFixed(1)}% DEPLOYED (40-60% CAUTION)`;
+        } else {
+          badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-rose-600 text-white border border-white';
+          badge.innerText = `🔴 OVER-LEVERAGED: ${utilPct.toFixed(1)}% (>60% STOP NEW CSPS)`;
+        }
+      }
+    }
+
     function renderDashboardData(data) {
+      if (data && data.cash_safety_summary) {
+        try { renderCashSafetySection(data.cash_safety_summary); } catch (e) { console.error('Cash safety render error:', e); }
+      }
       if (!data) return;
       if (data.feed_warnings && Array.isArray(data.feed_warnings)) {
         data.feed_warnings.forEach(w => {
@@ -1919,8 +2353,8 @@
         checkPositionExitAlerts(data.manual_positions);
       }
       if (data.equity_exposure !== undefined || data.manual_positions !== undefined) {
-        renderEquityExposureSection();
-        renderManualPositionsSection();
+        try { renderEquityExposureSection(); } catch (err) { console.error('Error in renderEquityExposureSection:', err); }
+        try { renderManualPositionsSection(); } catch (err) { console.error('Error in renderManualPositionsSection:', err); }
       }
 
       // Update The Wheel Table (All 13 Tickers sorted with Qualified Triggers first)
@@ -2341,6 +2775,58 @@
       if (modal) modal.classList.add('hidden');
     }
 
+    async function trigger1ClickAutoAuth() {
+      const btn = document.getElementById('btn1ClickAutoAuth');
+      const statusMsg = document.getElementById('autoAuthStatus');
+      if (btn) btn.disabled = true;
+      if (statusMsg) {
+        statusMsg.classList.remove('hidden');
+        statusMsg.className = 'p-2.5 rounded bg-cyan-950 border border-cyan-500 text-cyan-300 font-mono text-xs';
+        statusMsg.innerText = 'Starting local receiver on 127.0.0.1:443...';
+      }
+
+      try {
+        const res = await fetch('/api/schwab/start-auto-auth');
+        const data = await res.json();
+        if (data.status === 'ok' || data.status === 'warning') {
+          if (statusMsg) {
+            statusMsg.innerHTML = '✨ Edge browser opened! Log into Schwab and click &ldquo;Approve&rdquo;.<br><span class="text-emerald-300 font-bold">The script intercepts the code in 0.1s and closes Edge automatically.</span>';
+          }
+          const pollInterval = setInterval(async () => {
+            try {
+              const stRes = await fetch('/api/schwab/status');
+              const st = await stRes.json();
+              if (st && st.connected) {
+                clearInterval(pollInterval);
+                if (statusMsg) {
+                  statusMsg.className = 'p-2.5 rounded bg-emerald-950 border border-emerald-500 text-emerald-300 font-mono text-xs font-bold';
+                  statusMsg.innerText = '🎉 Schwab Connected Successfully! Refreshing matrix...';
+                }
+                playAlertTone('success');
+                setTimeout(() => {
+                  closeSchwabAuthModal();
+                  location.reload();
+                }, 2000);
+              }
+            } catch (e) {}
+          }, 2000);
+          setTimeout(() => clearInterval(pollInterval), 180000);
+        } else {
+          if (statusMsg) {
+            statusMsg.className = 'p-2.5 rounded bg-rose-950 border border-rose-500 text-rose-300 font-mono text-xs';
+            statusMsg.innerText = 'Error starting receiver: ' + (data.message || 'Unknown error');
+          }
+          if (btn) btn.disabled = false;
+        }
+      } catch (err) {
+        if (statusMsg) {
+          statusMsg.className = 'p-2.5 rounded bg-rose-950 border border-rose-500 text-rose-300 font-mono text-xs';
+          statusMsg.innerText = 'Network error: ' + err.message;
+        }
+        if (btn) btn.disabled = false;
+      }
+    }
+
     async function submitSchwabReauth() {
       const input = document.getElementById('schwabRedirectUrlInput');
       const url = input ? input.value.trim() : '';
@@ -2475,8 +2961,8 @@ Order ID: ${result.order_id || 'SUBMITTED'}`);
             }
           } else if (data.token_valid) {
             badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-purple-900 border border-purple-400 text-purple-300';
-            badge.innerText = '📡 Market Data Only (Trading Inactive)';
-            notice.innerHTML = `Schwab Market Data is active. To enable live trading, click <strong>"Authorize Trading Token"</strong> or enable <strong>"Accounts and Trading Production"</strong> in developer.schwab.com.`;
+            badge.innerText = '📡 Market Data Only (Paper Trading Active)';
+            notice.innerHTML = `Schwab live market data feed is active. Schwab Trader live execution is disabled (Paper Trading is the default execution mode).`;
           }
         }
       } catch (e) {}

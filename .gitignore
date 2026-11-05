@@ -21,3 +21,6 @@ positions.csv
 *.bak
 market_cache.db*
 paper_trading.db*
+.schwab_browser_profile/
+portfolio_balances.json
+*.lock

@@ -16,6 +16,7 @@ import datetime
 import json
 import math
 import os
+import re
 import sqlite3
 import sys
 import threading
@@ -220,6 +221,52 @@ def _load_local_dotenv() -> Dict[str, str]:
     return env_map
 
 
+try:
+    import winreg
+except ImportError:
+    winreg = None
+
+
+def _get_windows_user_env(key_name: str) -> Optional[str]:
+    """Reads User/Account Environment Variable directly from Windows Registry if not yet loaded in os.environ."""
+    if not winreg:
+        return None
+    for root, subkey in [
+        (winreg.HKEY_CURRENT_USER, r"Environment"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+    ]:
+        try:
+            with winreg.OpenKey(root, subkey, 0, winreg.KEY_READ) as key:
+                val, _ = winreg.QueryValueEx(key, key_name)
+                if val:
+                    return str(val).strip()
+        except Exception:
+            pass
+    return None
+
+
+def get_app_credential(name: str, fallback_dotenv: Optional[Dict[str, str]] = None) -> str:
+    """
+    Retrieves credential with highest-priority fallback:
+    1. os.environ (process env)
+    2. Windows User/Account & System Environment Variables via Registry
+    3. Local .env file dictionary
+    """
+    val = os.environ.get(name)
+    if val and val.strip():
+        return val.strip()
+
+    reg_val = _get_windows_user_env(name)
+    if reg_val and reg_val.strip():
+        os.environ[name] = reg_val.strip()
+        return reg_val.strip()
+
+    if fallback_dotenv and fallback_dotenv.get(name):
+        return fallback_dotenv[name].strip()
+
+    return ""
+
+
 class SchwabReadOnlyClient:
     """
     100% Read-Only Charles Schwab / Thinkorswim Market Data Client.
@@ -242,24 +289,25 @@ class SchwabReadOnlyClient:
         self.app_key = ""
         self.app_secret = ""
         self.redirect_uri = "https://127.0.0.1"
+        self._last_warned_issue: str = ""
+        self._last_warned_time: float = 0.0
+        self._last_api_error: str = ""
         self._sync_env_credentials()
         self._tokens: Dict[str, Any] = self._load_tokens()
 
     def _sync_env_credentials(self):
         dotenv_vars = _load_local_dotenv()
-        key = (os.environ.get("SCHWAB_APP_KEY") or dotenv_vars.get("SCHWAB_APP_KEY") or "").strip()
-        secret = (os.environ.get("SCHWAB_APP_SECRET") or dotenv_vars.get("SCHWAB_APP_SECRET") or "").strip()
+        self.app_key = get_app_credential("SCHWAB_APP_KEY", dotenv_vars)
+        self.app_secret = get_app_credential("SCHWAB_APP_SECRET", dotenv_vars)
         redirect = (
-            os.environ.get("SCHWAB_REDIRECT_URI")
-            or dotenv_vars.get("SCHWAB_REDIRECT_URI")
+            get_app_credential("SCHWAB_REDIRECT_URI", dotenv_vars)
+            or get_app_credential("SCHWAB_CALLBACK_URL", dotenv_vars)
             or "https://127.0.0.1"
-        ).strip()
-        if key:
-            self.app_key = key
-        if secret:
-            self.app_secret = secret
-        if redirect:
-            self.redirect_uri = redirect
+        )
+        if "?code=" in redirect:
+            redirect = redirect.split("?")[0]
+        self.redirect_uri = redirect
+        self._tokens = self._load_tokens()
 
     def _load_tokens(self) -> Dict[str, Any]:
         if os.path.exists(self.token_path):
@@ -291,6 +339,46 @@ class SchwabReadOnlyClient:
             f"&redirect_uri={encoded_redirect}"
         )
 
+    def get_connection_issue(self) -> str:
+        """Returns a human-readable diagnosis of why Schwab is not connected or None if healthy."""
+        self._sync_env_credentials()
+        if not (self.app_key and self.app_secret):
+            return "Missing SCHWAB_APP_KEY or SCHWAB_APP_SECRET in .env"
+        self._tokens = self._load_tokens()
+        refresh_token = self._tokens.get("refresh_token")
+        if not refresh_token:
+            return "No refresh token found in schwab_tokens.json (Never authenticated)"
+        now = time.time()
+        refresh_exp = float(self._tokens.get("refresh_expires_at", 0.0))
+        if now >= refresh_exp:
+            exp_dt = (
+                datetime.datetime.fromtimestamp(refresh_exp).strftime("%Y-%m-%d %H:%M:%S")
+                if refresh_exp > 0
+                else "unknown"
+            )
+            hours_ago = (now - refresh_exp) / 3600.0 if refresh_exp > 0 else 0
+            return f"Schwab 7-day OAuth token EXPIRED on {exp_dt} ({hours_ago:.1f}h ago). Re-authorization required."
+        if self._last_api_error:
+            return f"Schwab API Error: {self._last_api_error}"
+        return ""
+
+    def warn_schwab_issue(self, context: str = ""):
+        """Prints a descriptive Schwab issue warning to the console with throttled frequency."""
+        issue = self.get_connection_issue()
+        if not issue:
+            return
+        now = time.time()
+        if (now - self._last_warned_time) < 3600:
+            return
+        self._last_warned_issue = issue
+        self._last_warned_time = now
+        prefix = f" [{context}]" if context else ""
+        sys.stderr.write(
+            f"\n[SCHWAB ISSUE]{prefix}: {issue}\n"
+            f"   -> Market feed is falling back to Yahoo Finance.\n"
+            f"   -> To reconnect Schwab: Open http://127.0.0.1:8765/ (HUD modal) or run: python option_sentinel.py --schwab-auth\n\n"
+        )
+
     def get_status(self) -> Dict[str, Any]:
         self._sync_env_credentials()
         now = time.time()
@@ -300,18 +388,23 @@ class SchwabReadOnlyClient:
         connected = bool(configured and self._tokens.get("refresh_token") and remaining_sec > 0)
         days_left = int(remaining_sec // 86400)
         hours_left = int((remaining_sec % 86400) // 3600)
+        issue = self.get_connection_issue()
         if not configured:
             status_label = "Set SCHWAB_APP_KEY & SCHWAB_APP_SECRET in .env"
         elif connected:
             status_label = f"Schwab ToS Connected ({days_left}d {hours_left}h left)"
+        elif refresh_exp > 0 and now >= refresh_exp:
+            hours_expired = int((now - refresh_exp) // 3600)
+            status_label = f"Schwab Token Expired ({hours_expired}h ago) — Re-auth Required"
         else:
-            status_label = "Keys Loaded (.env) — Click to Activate 7d Token"
+            status_label = "Keys Loaded (Env) — Click to Activate 7d Token"
         return {
             "configured": configured,
             "connected": connected,
             "days_remaining": days_left,
             "hours_remaining": hours_left,
             "status_label": status_label,
+            "issue": issue,
             "mode": "100% READ-ONLY (GET Market Data Only)",
         }
 
@@ -323,15 +416,15 @@ class SchwabReadOnlyClient:
         """
         self._sync_env_credentials()
         if not (self.app_key and self.app_secret):
-            return False, "Missing SCHWAB_APP_KEY or SCHWAB_APP_SECRET in .env."
+            return False, "Missing SCHWAB_APP_KEY or SCHWAB_APP_SECRET in environment variables or .env."
 
         raw = redirect_url_or_code.strip() if redirect_url_or_code else ""
         if not raw:
             env_vars = _load_local_dotenv()
-            raw = (env_vars.get("SCHWAB_CALLBACK_URL") or os.environ.get("SCHWAB_CALLBACK_URL") or "").strip()
+            raw = (get_app_credential("SCHWAB_CALLBACK_URL", env_vars) or get_app_credential("SCHWAB_REDIRECT_URI", env_vars)).strip()
 
         if not raw:
-            return False, "No callback URL provided. Pass it as an argument or add SCHWAB_CALLBACK_URL to .env."
+            return False, "No callback URL provided. Pass it as an argument or set SCHWAB_CALLBACK_URL in environment variables."
 
         code = raw
         if "code=" in raw:
@@ -357,6 +450,14 @@ class SchwabReadOnlyClient:
         }
         try:
             resp = requests.post("https://api.schwabapi.com/v1/oauth/token", headers=headers, data=payload, timeout=8)
+            if resp.status_code != 200:
+                alt_uri = self.redirect_uri[:-1] if self.redirect_uri.endswith("/") else (self.redirect_uri + "/")
+                alt_payload = dict(payload)
+                alt_payload["redirect_uri"] = alt_uri
+                alt_resp = requests.post("https://api.schwabapi.com/v1/oauth/token", headers=headers, data=alt_payload, timeout=8)
+                if alt_resp.status_code == 200:
+                    resp = alt_resp
+
             if resp.status_code == 200:
                 data = resp.json()
                 now = time.time()
@@ -370,7 +471,9 @@ class SchwabReadOnlyClient:
             return False, f"Schwab OAuth connection error: {e}"
 
     def _get_valid_access_token(self) -> Optional[str]:
+        self._sync_env_credentials()
         if not (self.app_key and self.app_secret):
+            self.warn_schwab_issue("Missing Credentials")
             return None
         now = time.time()
         access_token = self._tokens.get("access_token")
@@ -380,7 +483,11 @@ class SchwabReadOnlyClient:
 
         refresh_token = self._tokens.get("refresh_token")
         refresh_exp = float(self._tokens.get("refresh_expires_at", 0.0))
-        if not refresh_token or now >= refresh_exp:
+        if not refresh_token:
+            self.warn_schwab_issue("No Token")
+            return None
+        if now >= refresh_exp:
+            self.warn_schwab_issue("Token Expired")
             return None
 
         basic_token = base64.b64encode(f"{self.app_key}:{self.app_secret}".encode("utf-8")).decode("utf-8")
@@ -400,10 +507,17 @@ class SchwabReadOnlyClient:
                 merged.update(new_data)
                 merged["access_expires_at"] = now + float(new_data.get("expires_in", 1800)) - 60.0
                 self._save_tokens(merged)
+                self._last_api_error = ""
                 return merged.get("access_token")
-            sys.stderr.write(f"[SCHWAB-AUTH WARNING]: Token refresh HTTP {resp.status_code}\n")
+            err_msg = f"Token refresh HTTP {resp.status_code}: {resp.text[:200]}"
+            self._last_api_error = err_msg
+            sys.stderr.write(f"[SCHWAB-AUTH WARNING]: {err_msg}\n")
+            self.warn_schwab_issue(f"Refresh Rejected ({resp.status_code})")
         except Exception as e:
-            sys.stderr.write(f"[SCHWAB-AUTH WARNING]: Token refresh failed ({e})\n")
+            err_msg = f"Token refresh failed ({e})"
+            self._last_api_error = err_msg
+            sys.stderr.write(f"[SCHWAB-AUTH WARNING]: {err_msg}\n")
+            self.warn_schwab_issue("Refresh Network Error")
         return None
 
     def get_chart_history(self, symbol: str) -> Optional[Dict[str, Any]]:
@@ -478,7 +592,11 @@ class SchwabReadOnlyClient:
                             },
                             "indicators": {"quote": [{"close": closes}]},
                         }
+            else:
+                self._last_api_error = f"Chart {symbol} HTTP {r.status_code}: {r.text[:120]}"
+                sys.stderr.write(f"[SCHWAB-API ERROR]: Chart fetch for {symbol} returned HTTP {r.status_code}: {r.text[:120]}\n")
         except Exception as e:
+            self._last_api_error = f"Chart {symbol} error: {e}"
             sys.stderr.write(f"[SCHWAB-API FALLBACK]: Chart fetch for {symbol} failed ({e})\n")
         return None
 
@@ -495,13 +613,15 @@ class SchwabReadOnlyClient:
         to_date = (today + datetime.timedelta(days=max(from_dte + 1, to_dte))).strftime("%Y-%m-%d")
         url = (
             "https://api.schwabapi.com/marketdata/v1/chains"
-            f"?symbol={urllib.parse.quote(schwab_sym)}&contractType=ALL&includeUnderlyingQuote=true"
+            f"?symbol={urllib.parse.quote(schwab_sym)}&contractType=ALL&includeUnderlyingQuote=true&strategy=SINGLE&strikeCount=35"
             f"&fromDate={from_date}&toDate={to_date}"
         )
         try:
             self.limiter.acquire()
             r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=6)
             if r.status_code != 200:
+                self._last_api_error = f"Chains {symbol} HTTP {r.status_code}: {r.text[:120]}"
+                sys.stderr.write(f"[SCHWAB-API ERROR]: Option chain fetch for {symbol} returned HTTP {r.status_code}: {r.text[:120]}\n")
                 return None
             data = r.json()
             contracts: List[LiveOptionContract] = []
@@ -575,7 +695,7 @@ class LiveMarketClient:
         self._cache_earnings: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self.sqlite_cache = SQLiteMarketCache(enabled=self.persist_cache_enabled)
         self.schwab_limiter = TokenBucketRateLimiter(max_calls=90, period_seconds=60.0, min_interval_sec=0.05)
-        self.yahoo_limiter = TokenBucketRateLimiter(max_calls=30, period_seconds=60.0, min_interval_sec=0.05)
+        self.yahoo_limiter = TokenBucketRateLimiter(max_calls=90, period_seconds=60.0, min_interval_sec=0.02)
         self.twelve_data_limiter = TokenBucketRateLimiter(max_calls=8, period_seconds=60.0, min_interval_sec=0.25)
         self.schwab_client = SchwabReadOnlyClient(self.schwab_limiter)
         self.twelve_data_api_key = (
@@ -889,6 +1009,17 @@ class LiveMarketClient:
                     sys.stderr.write(f"[LIVE-FEED] Error fetching {sym}: {e}\n")
         return results
 
+    def preload_chains_parallel(self, symbols: List[str]):
+        """
+        Pre-loads option chains concurrently across worker threads to populate memory cache.
+        Guarantees that subsequent matrix generations (Wheel, Spreads, LEAP) respond in 0ms.
+        """
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, len(symbols))) as executor:
+            f1 = [executor.submit(self.get_live_option_chain, s, 28, 55) for s in symbols]
+            non_lev = [s for s in symbols if s not in ("TQQQ", "SOXL", "SPXL")]
+            f2 = [executor.submit(self.get_live_leap_options, s, 180, "CALL") for s in non_lev]
+            concurrent.futures.wait(f1 + f2, timeout=15)
+
     def get_live_option_chain(
         self, symbol: str, target_dte_min: int = 25, target_dte_max: int = 55
     ) -> List[LiveOptionContract]:
@@ -948,18 +1079,26 @@ class LiveMarketClient:
             first_result = chain_res[0]
             spot = float(first_result.get("quote", {}).get("regularMarketPrice", 100.0))
             exp_timestamps = first_result.get("expirationDates", [])
+            today_utc = datetime.datetime.now(datetime.timezone.utc).date()
 
-            matching_exps = [
-                (exp_ts, int(round((exp_ts - now_ts) / 86400.0)), datetime.datetime.fromtimestamp(exp_ts).strftime("%Y-%m-%d"))
-                for exp_ts in exp_timestamps
-                if target_dte_min <= (exp_ts - now_ts) / 86400.0 <= target_dte_max
-            ]
+            matching_exps = []
+            for exp_ts in exp_timestamps:
+                exp_date = datetime.datetime.fromtimestamp(exp_ts, datetime.timezone.utc).date()
+                dte_val = (exp_date - today_utc).days
+                if target_dte_min <= dte_val <= target_dte_max:
+                    matching_exps.append((exp_ts, dte_val, exp_date.isoformat()))
 
             if not matching_exps and exp_timestamps:
-                all_exps = [(exp_ts, int(round((exp_ts - now_ts) / 86400.0))) for exp_ts in exp_timestamps]
-                closest = min(all_exps, key=lambda x: abs(x[1] - ((target_dte_min + target_dte_max) // 2)))
-                exp_date_str = datetime.datetime.fromtimestamp(closest[0]).strftime("%Y-%m-%d")
-                matching_exps.append((closest[0], closest[1], exp_date_str))
+                all_exps = []
+                for exp_ts in exp_timestamps:
+                    exp_date = datetime.datetime.fromtimestamp(exp_ts, datetime.timezone.utc).date()
+                    dte_val = (exp_date - today_utc).days
+                    if dte_val > 0:
+                        all_exps.append((exp_ts, dte_val, exp_date.isoformat()))
+                if all_exps:
+                    target_mid = (target_dte_min + target_dte_max) // 2
+                    closest = min(all_exps, key=lambda x: abs(x[1] - target_mid))
+                    matching_exps.append(closest)
 
             for exp_ts, dte, exp_str in matching_exps[:1]:
                 exp_url = f"https://query2.finance.yahoo.com/v7/finance/options/{yahoo_sym}?date={exp_ts}"
@@ -1019,7 +1158,7 @@ class LiveMarketClient:
         return matching[0] if matching else None
 
     def get_live_leap_options(
-        self, symbol: str, min_dte: int = 340, option_type: str = "CALL"
+        self, symbol: str, min_dte: int = 180, option_type: str = "CALL"
     ) -> List[LiveOptionContract]:
         cache_key = f"{symbol}_LEAP_ALL_{min_dte}"
         now = time.time()
@@ -1078,11 +1217,20 @@ class LiveMarketClient:
             spot = float(first_result.get("quote", {}).get("regularMarketPrice", 100.0))
             exp_timestamps = first_result.get("expirationDates", [])
 
-            leap_exps = [
-                (exp_ts, int(round((exp_ts - now_ts) / 86400.0)), datetime.datetime.fromtimestamp(exp_ts).strftime("%Y-%m-%d"))
-                for exp_ts in exp_timestamps
-                if (exp_ts - now_ts) / 86400.0 >= min_dte
-            ]
+            today_utc = datetime.datetime.now(datetime.timezone.utc).date()
+            leap_exps = []
+            for exp_ts in exp_timestamps:
+                exp_date = datetime.datetime.fromtimestamp(exp_ts, datetime.timezone.utc).date()
+                dte_val = (exp_date - today_utc).days
+                if dte_val >= min_dte:
+                    leap_exps.append((exp_ts, dte_val, exp_date.isoformat()))
+
+            if not leap_exps:
+                for exp_ts in exp_timestamps:
+                    exp_date = datetime.datetime.fromtimestamp(exp_ts, datetime.timezone.utc).date()
+                    dte_val = (exp_date - today_utc).days
+                    if dte_val > 90:
+                        leap_exps.append((exp_ts, dte_val, exp_date.isoformat()))
 
             if not leap_exps:
                 return []
@@ -1153,11 +1301,17 @@ class LiveMarketClient:
 
         gamma = round(norm_pdf_d1 / (spot * iv * math.sqrt(t)), 4) if (spot * iv * math.sqrt(t)) > 0 else 0.0
 
+        sym_raw = raw.get("contractSymbol", f"{opt_type}-{strike}")
+        real_exp = exp_str
+        m = re.search(r"([A-Z]+)(\d{2})(\d{2})(\d{2})[CP]", sym_raw.upper())
+        if m:
+            real_exp = f"20{m.group(2)}-{m.group(3)}-{m.group(4)}"
+
         return LiveOptionContract(
-            contract_symbol=raw.get("contractSymbol", f"{opt_type}-{strike}"),
+            contract_symbol=sym_raw,
             strike=strike,
             dte=dte,
-            expiration=exp_str,
+            expiration=real_exp,
             option_type=opt_type,
             bid=round(bid, 2),
             ask=round(ask, 2),
