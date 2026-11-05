@@ -1734,6 +1734,8 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_response([asdict(r) for r in self.scanner.generate_leap_matrix()])
         elif path == "/api/leap-put":
             self._send_json_response(self.scanner.generate_leap_put_matrix(all_tickers=True))
+        elif path == "/api/spreads":
+            self._send_json_response(self.scanner.generate_spread_matrix(all_tickers=True))
         elif path == "/api/alerts":
             self._send_json_response(self.sentinel.audit_manual_positions(emit_stderr=False))
         elif path == "/api/positions":

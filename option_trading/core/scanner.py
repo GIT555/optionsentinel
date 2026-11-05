@@ -301,7 +301,10 @@ class StrategyScanner:
                 leaps = [c for c in leaps if c.bid > 0 and c.ask > 0] or leaps
                 _leap_exp = min(leaps, key=lambda c: abs(c.dte - 390)).expiration
                 leaps = [c for c in leaps if c.expiration == _leap_exp]
-                best_leap = min(leaps, key=lambda c: abs(c.delta_approx - 0.85))
+                # Target deep ITM Call (strike < spot) for ~0.85 Delta
+                itm_leaps = [c for c in leaps if c.strike < spot]
+                candidates = itm_leaps if itm_leaps else leaps
+                best_leap = min(candidates, key=lambda c: abs(c.delta_approx - 0.85))
                 leap_contract = best_leap.contract_symbol
                 leap_strike = best_leap.strike
                 leap_bid = best_leap.bid
@@ -341,7 +344,10 @@ class StrategyScanner:
             if calls:
                 _pm_exp = min(calls, key=lambda c: abs(c.dte - 45)).expiration
                 calls = [c for c in calls if c.expiration == _pm_exp]
-                best_pmcc = min(calls, key=lambda c: abs(c.delta_approx - 0.30))
+                # Short PMCC call MUST be strictly Out-Of-The-Money (strike > spot) and above the LEAP strike
+                otm_pmcc = [c for c in calls if c.strike > spot and c.strike > leap_strike]
+                candidates = otm_pmcc if otm_pmcc else [c for c in calls if c.strike > leap_strike] or calls
+                best_pmcc = min(candidates, key=lambda c: abs(c.delta_approx - 0.30))
                 pmcc_contract = best_pmcc.contract_symbol
                 pmcc_strike = best_pmcc.strike
                 pmcc_bid = best_pmcc.bid
@@ -441,7 +447,13 @@ class StrategyScanner:
 
             leaps = self.market_client.get_live_leap_options(sym, min_dte=180, option_type="PUT")
             if leaps:
-                best_leap = min(leaps, key=lambda c: abs(c.delta_approx - (-0.85)))
+                leaps = [c for c in leaps if c.bid > 0 and c.ask > 0] or leaps
+                _leap_exp = min(leaps, key=lambda c: abs(c.dte - 390)).expiration
+                leaps = [c for c in leaps if c.expiration == _leap_exp]
+                # Target deep ITM Put (strike > spot) for ~ -0.85 Delta
+                itm_puts = [c for c in leaps if c.strike > spot]
+                candidates = itm_puts if itm_puts else leaps
+                best_leap = min(candidates, key=lambda c: abs(c.delta_approx - (-0.85)))
                 leap_contract = best_leap.contract_symbol
                 leap_strike = best_leap.strike
                 leap_bid = best_leap.bid
@@ -475,10 +487,18 @@ class StrategyScanner:
 
             chain = self.market_client.get_live_option_chain(sym, 28, 55)
             puts = [c for c in chain if c.option_type == "PUT"]
+            puts = [c for c in puts if c.bid > 0 and c.ask > 0] or puts
             if puts:
-                best_pmcp = min(puts, key=lambda c: abs(c.delta_approx - (-0.30)))
+                _pm_exp = min(puts, key=lambda c: abs(c.dte - 45)).expiration
+                puts = [c for c in puts if c.expiration == _pm_exp]
+                # Short PMCP put MUST be strictly Out-Of-The-Money (strike < spot) and below the LEAP strike
+                otm_pmcp = [c for c in puts if c.strike < spot and c.strike < leap_strike]
+                candidates = otm_pmcp if otm_pmcp else [c for c in puts if c.strike < leap_strike] or puts
+                best_pmcp = min(candidates, key=lambda c: abs(c.delta_approx - (-0.30)))
                 pmcp_contract = best_pmcp.contract_symbol
                 pmcp_strike = best_pmcp.strike
+                pmcp_bid = best_pmcp.bid
+                pmcp_ask = best_pmcp.ask
                 pmcp_mid = best_pmcp.mid
                 pmcp_dte = best_pmcp.dte
                 pmcp_exp = best_pmcp.expiration
@@ -542,7 +562,7 @@ class StrategyScanner:
         recommendations.sort(key=lambda r: (not r["is_qualified"], -r["rsi"]))
         return recommendations
 
-    def generate_spread_matrix(self) -> List[Dict[str, Any]]:
+    def generate_spread_matrix(self, all_tickers: bool = True) -> List[Dict[str, Any]]:
         """Generates defined-risk Vertical Credit and Debit Spreads."""
         spreads: List[Dict[str, Any]] = []
 
@@ -616,14 +636,54 @@ class StrategyScanner:
             short_c = None
             long_c = None
             if candidates:
-                short_c = min(candidates, key=lambda c: abs(c.strike - short_k))
-                long_c = min(candidates, key=lambda c: abs(c.strike - long_k))
+                # Ensure all spread legs share the identical expiration closest to target_dte
+                _exp = min(candidates, key=lambda c: abs(c.dte - target_dte)).expiration
+                same_exp_candidates = [c for c in candidates if c.expiration == _exp]
+                if same_exp_candidates:
+                    candidates = same_exp_candidates
+
+                if spread_type == "Bull Put Credit Spread":
+                    # Sell OTM Put, Buy lower strike Put
+                    otm_puts = [c for c in candidates if c.strike < spot] or candidates
+                    short_c = min(otm_puts, key=lambda c: abs(c.strike - short_k))
+                    valid_longs = [c for c in candidates if c.strike < short_c.strike]
+                    if valid_longs:
+                        long_c = min(valid_longs, key=lambda c: abs(c.strike - long_k))
+                elif spread_type == "Bear Call Credit Spread":
+                    # Sell OTM Call, Buy higher strike Call
+                    otm_calls = [c for c in candidates if c.strike > spot] or candidates
+                    short_c = min(otm_calls, key=lambda c: abs(c.strike - short_k))
+                    valid_longs = [c for c in candidates if c.strike > short_c.strike]
+                    if valid_longs:
+                        long_c = min(valid_longs, key=lambda c: abs(c.strike - long_k))
+                elif spread_type == "Bull Call Debit Spread":
+                    # Buy lower strike Call, Sell higher strike Call
+                    long_c = min(candidates, key=lambda c: abs(c.strike - long_k))
+                    valid_shorts = [c for c in candidates if c.strike > long_c.strike]
+                    if valid_shorts:
+                        short_c = min(valid_shorts, key=lambda c: abs(c.strike - short_k))
+                else:  # Bear Put Debit Spread
+                    # Buy higher strike Put, Sell lower strike Put
+                    long_c = min(candidates, key=lambda c: abs(c.strike - long_k))
+                    valid_shorts = [c for c in candidates if c.strike < long_c.strike]
+                    if valid_shorts:
+                        short_c = min(valid_shorts, key=lambda c: abs(c.strike - short_k))
+
+                # Fallbacks if one leg was missing in ladder
+                if not short_c and candidates:
+                    short_c = min(candidates, key=lambda c: abs(c.strike - short_k))
+                if not long_c and candidates:
+                    long_c = min(candidates, key=lambda c: abs(c.strike - long_k))
 
             short_strike = short_c.strike if short_c else short_k
             long_strike = long_c.strike if long_c else long_k
             actual_width = abs(short_strike - long_strike)
             if actual_width == 0:
                 actual_width = width
+                if is_credit:
+                    long_strike = short_strike - width if not is_call else short_strike + width
+                else:
+                    short_strike = long_strike + width if is_call else long_strike - width
 
             short_mid = short_c.mid if short_c and short_c.mid > 0 else round(self.math.black_scholes_price(spot, short_strike, target_dte, iv, 0.045, is_call), 2)
             long_mid = long_c.mid if long_c and long_c.mid > 0 else round(self.math.black_scholes_price(spot, long_strike, target_dte, iv, 0.045, is_call), 2)
@@ -637,7 +697,8 @@ class StrategyScanner:
             long_delta = long_c.delta_approx if long_c else (0.15 if is_call else -0.15)
 
             if is_credit:
-                net_credit = max(0.05, round(short_mid - long_mid, 2))
+                raw_credit = round(short_mid - long_mid, 2)
+                net_credit = max(0.05, min(raw_credit, round(actual_width - 0.05, 2)))
                 max_profit = round(net_credit * 100.0, 2)
                 max_risk = round((actual_width - net_credit) * 100.0, 2)
                 roc = round((max_profit / max_risk) * 100.0, 1) if max_risk > 0 else 0.0
@@ -650,7 +711,8 @@ class StrategyScanner:
                 exit_target = round(net_credit * 0.50, 2)
                 trade_action = f"SELL 1x {short_sym} / BUY 1x {long_sym}"
             else:
-                net_debit = max(0.05, round(long_mid - short_mid, 2))
+                raw_debit = round(long_mid - short_mid, 2)
+                net_debit = max(0.05, min(raw_debit, round(actual_width - 0.05, 2)))
                 max_profit = round((actual_width - net_debit) * 100.0, 2)
                 max_risk = round(net_debit * 100.0, 2)
                 roc = round((max_profit / max_risk) * 100.0, 1) if max_risk > 0 else 0.0
