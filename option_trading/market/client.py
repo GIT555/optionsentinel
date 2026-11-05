@@ -1099,6 +1099,10 @@ class LiveMarketClient:
                     closest = min(all_exps, key=lambda x: abs(x[1] - target_mid))
                     matching_exps.append(closest)
 
+            # Sort matching expirations by proximity to target 45 DTE (selects liquid monthly expiration)
+            target_mid = (target_dte_min + target_dte_max) // 2
+            matching_exps.sort(key=lambda x: abs(x[1] - target_mid))
+
             for exp_ts, dte, exp_str in matching_exps[:1]:
                 exp_url = f"https://query2.finance.yahoo.com/v7/finance/options/{yahoo_sym}?date={exp_ts}"
                 if crumb:

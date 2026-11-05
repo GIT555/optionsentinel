@@ -1972,16 +1972,39 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             safe_k = round((spot - (move_1sd * 1.25)) / 0.5) * 0.5
             buffer_pct = round(((spot - safe_k) / spot) * 100.0, 1) if spot > 0 else 0.0
             chain = self.scanner.market_client.get_live_option_chain(l_sym, 28, 55)
-            puts = [c for c in chain if c.option_type == "PUT"]
-            closest_put = min(puts, key=lambda c: abs(c.strike - safe_k)) if puts else None
-            live_contract = closest_put.contract_symbol if closest_put else f"{l_sym}-CSP-0.20D"
-            live_mid = closest_put.mid if closest_put else round(spot * 0.03, 2)
-            target_dte = closest_put.dte if closest_put else dte
-            exp_date = closest_put.expiration if closest_put else ""
-            bid = closest_put.bid if closest_put else round(max(0.01, live_mid * 0.95), 2)
-            ask = closest_put.ask if closest_put else round(live_mid * 1.05, 2)
-            delta_val = closest_put.delta_approx if closest_put else -0.20
-            theta_val = closest_put.theta_approx if closest_put else -0.05
+            # Cash-Secured Puts MUST be strictly Out-Of-The-Money (strike < spot)
+            otm_puts = [c for c in chain if c.option_type == "PUT" and c.strike < spot]
+
+            closest_put = None
+            if otm_puts:
+                # Find the OTM put closest to -0.20 Delta target
+                closest_put = min(otm_puts, key=lambda c: abs(c.delta_approx - (-0.20)))
+
+            if closest_put:
+                live_contract = closest_put.contract_symbol
+                safe_k = closest_put.strike
+                live_mid = closest_put.mid if closest_put.mid > 0 else round(self.scanner.math.black_scholes_price(spot, safe_k, closest_put.dte, iv, 0.045, is_call=False), 2)
+                target_dte = closest_put.dte
+                exp_date = closest_put.expiration
+                bid = closest_put.bid
+                ask = closest_put.ask
+                delta_val = closest_put.delta_approx
+                theta_val = closest_put.theta_approx
+            else:
+                live_contract = f"{l_sym}-CSP-0.20D"
+                live_mid = round(spot * 0.03, 2)
+                target_dte = dte
+                exp_date = (datetime.date.today() + datetime.timedelta(days=dte)).isoformat()
+                bid = round(max(0.01, live_mid * 0.95), 2)
+                ask = round(live_mid * 1.05, 2)
+                delta_val = -0.20
+                theta_val = -0.05
+
+            buffer_pct = round(((spot - safe_k) / spot) * 100.0, 1) if spot > 0 else 0.0
+            collateral = safe_k * 100.0
+            max_profit = round(live_mid * 100.0, 2)
+            profit_target_50 = round(live_mid * 0.50, 2)
+            annualized_roc = round(((live_mid / safe_k) * (365.0 / target_dte)) * 100.0, 1) if safe_k > 0 else 0.0
 
             if not exp_date and live_contract:
                 exp_date = parse_occ_expiration(live_contract) or ""
@@ -2006,10 +2029,10 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
                 "delta": delta_val,
                 "theta": theta_val,
                 "target_delta": -0.20,
-                "required_collateral": safe_k * 100.0,
-                "max_profit_credit": round(live_mid * 100.0, 2),
-                "profit_target_50": round(live_mid * 0.50, 2),
-                "annualized_roc_est": round(((live_mid / safe_k) * (365.0 / target_dte)) * 100.0, 1) if safe_k > 0 else 0.0,
+                "required_collateral": collateral,
+                "max_profit_credit": max_profit,
+                "profit_target_50": profit_target_50,
+                "annualized_roc_est": annualized_roc,
                 "volatility_drag_warning": "CRITICAL: Never hold long LEAP calls. 3x daily rebalance causes severe beta decay in sideways regimes.",
                 "recommended_strategy": "Harvest Volatility Drag: Sell 0.20 Delta Cash-Secured Puts (50% profit exit) or Defined-Risk Put Credit Spreads."
             })

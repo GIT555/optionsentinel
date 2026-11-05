@@ -195,7 +195,8 @@ class StrategyScanner:
             exp_date = ""
 
             chain = self.market_client.get_live_option_chain(sym, 28, 55)
-            puts = [c for c in chain if c.option_type == "PUT"]
+            otm_puts = [c for c in chain if c.option_type == "PUT" and c.strike < spot]
+            puts = otm_puts if otm_puts else [c for c in chain if c.option_type == "PUT"]
             if puts:
                 closest_put = min(puts, key=lambda c: abs(c.strike - snapped_k))
                 live_contract = closest_put.contract_symbol
