@@ -22,12 +22,12 @@ from ..market.client import SchwabReadOnlyClient, TokenBucketRateLimiter
 from ..config import DATA_DIR
 
 
-PROFILE_DIR = os.path.join(DATA_DIR, ".schwab_browser_profile")
+PROFILE_DIR = os.path.join(DATA_DIR, ".schwab_chrome_profile")
 
 
 def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> Tuple[bool, str]:
     """
-    Launches persistent Edge browser context, navigates to Schwab auth,
+    Launches persistent Google Chrome browser context, navigates to Schwab auth,
     and intercepts the redirect URL containing ?code=...
     """
     import truststore
@@ -43,16 +43,16 @@ def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> T
     os.makedirs(PROFILE_DIR, exist_ok=True)
 
     print("\n=======================================================")
-    print("   AUTOMATED SCHWAB TOKEN AUTHENTICATION (PLAYWRIGHT)  ")
+    print("   AUTOMATED SCHWAB TOKEN AUTHENTICATION (CHROME)      ")
     print("=======================================================")
     print(f"[*] Profile Directory: {PROFILE_DIR}")
-    print("[*] Launching browser...")
+    print("[*] Launching Google Chrome...")
 
     captured_code: List[str] = []
     exchange_result: List[Any] = [False, "No token captured"]
 
     with sync_playwright() as p:
-        browser_channel = "msedge"
+        browser_channel = "chrome"
         try:
             context = p.chromium.launch_persistent_context(
                 user_data_dir=PROFILE_DIR,
@@ -65,7 +65,7 @@ def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> T
                 viewport={"width": 1100, "height": 800},
             )
         except Exception as e:
-            # Fallback to standard chromium if msedge channel fails
+            # Fallback to standard chromium if chrome channel fails
             try:
                 context = p.chromium.launch_persistent_context(
                     user_data_dir=PROFILE_DIR,
