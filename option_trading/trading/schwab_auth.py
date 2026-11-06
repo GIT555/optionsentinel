@@ -94,17 +94,32 @@ def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> T
         # Direct in-memory route interception on the entire browser context
         def handle_schwab_redirect(route):
             url = route.request.url
-            c = ""
-            if "code=" in url:
-                parsed = urllib.parse.urlparse(url)
-                qs = urllib.parse.parse_qs(parsed.query)
-                c = qs.get("code", [""])[0]
-                if c and c not in captured_code:
-                    captured_code.append(c)
+            if "code=" not in url:
+                try:
+                    route.continue_()
+                except Exception:
+                    pass
+                return
+
+            parsed = urllib.parse.urlparse(url)
+            qs = urllib.parse.parse_qs(parsed.query)
+            c = qs.get("code", [""])[0]
+            if not c and "#" in url:
+                frag = urllib.parse.parse_qs(parsed.fragment)
+                c = frag.get("code", [""])[0]
+
+            if not c:
+                try:
+                    route.continue_()
+                except Exception:
+                    pass
+                return
+
+            if c not in captured_code:
+                captured_code.append(c)
 
             # Perform exchange BEFORE responding so user sees accurate status in browser
-            if c:
-                do_immediate_exchange(c)
+            do_immediate_exchange(c)
 
             if exchange_result[0]:
                 body = """<!DOCTYPE html><html><body style="background:#0b1329;color:#4ade80;font-family:sans-serif;text-align:center;padding:50px;">
@@ -116,6 +131,7 @@ def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> T
                 body = f"""<!DOCTYPE html><html><body style="background:#0b1329;color:#f87171;font-family:sans-serif;text-align:center;padding:50px;">
                 <h1>&#10060; Schwab Token Exchange Failed</h1>
                 <p style="color:#f8fafc;font-size:16px;">{exchange_result[1]}</p>
+                <p style="color:#94a3b8;font-size:14px;">Check console output for details.</p>
                 </body></html>"""
 
             try:
@@ -127,7 +143,7 @@ def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> T
             except Exception:
                 pass
 
-        context.route("**127.0.0.1**", handle_schwab_redirect)
+        context.route(lambda url: "127.0.0.1" in url, handle_schwab_redirect)
 
         # Also hook request events across all pages/tabs
         def on_request(request):
