@@ -2387,6 +2387,24 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             acct_info["monthly_cash_yield_dollars"] = acct_mo_yield
             acct_info["cash_sweep_apy"] = apy
 
+        # Precompute aggregated safety metrics for Trading Accounts Only
+        trading_accounts_data = {k: v for k, v in accounts_data.items() if v.get("is_trading_account", False)}
+        t_net_cash = round(sum(float(a.get("net_cash", 0.0)) for a in trading_accounts_data.values()), 2)
+        t_gross_cash = round(sum(float(a.get("gross_cash", 0.0)) for a in trading_accounts_data.values()), 2)
+        t_collat = round(sum(float(a.get("csp_collateral", 0.0)) for a in trading_accounts_data.values()), 2)
+        t_gross_collat = round(sum(float(a.get("gross_csp_collateral", 0.0)) for a in trading_accounts_data.values()), 2)
+        t_relief = round(sum(float(a.get("hedged_relief", 0.0)) for a in trading_accounts_data.values()), 2)
+        t_powder = round(max(0.0, t_net_cash - t_collat), 2)
+        t_util = round((t_collat / t_net_cash) * 100.0, 1) if t_net_cash > 0 else 0.0
+        t_status = "SAFE" if t_util < 40.0 else ("MODERATE" if t_util <= 60.0 else "OVER_LEVERAGED")
+        t_ann_yield = round(t_net_cash * apy, 2)
+        t_mo_yield = round(t_ann_yield / 12.0, 2)
+        t_acct_val = round(sum(float(a.get("total_account_value", 0.0)) for a in trading_accounts_data.values()), 2)
+        t_invested_cap = round(sum(float(a.get("net_invested_capital", 0.0)) for a in trading_accounts_data.values()), 2)
+        t_cost_basis = round(sum(float(a.get("total_positions_cost_basis", 0.0)) for a in trading_accounts_data.values()), 2)
+        t_unrealized_pnl = round(t_acct_val - t_invested_cap, 2)
+        t_pnl_pct = round((t_unrealized_pnl / t_invested_cap * 100.0), 2) if t_invested_cap > 0 else 0.0
+
         cash_safety_summary = {
             "total_trading_net_cash": total_trading_cash,
             "total_csp_collateral": total_csp_collateral,
@@ -2404,6 +2422,24 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             "total_portfolio_invested_capital": balances_data.get("total_portfolio_invested_capital", 0.0),
             "total_portfolio_unrealized_pnl": balances_data.get("total_portfolio_unrealized_pnl", 0.0),
             "total_portfolio_pnl_pct": balances_data.get("total_portfolio_pnl_pct", 0.0),
+            "trading_only_summary": {
+                "net_cash": t_net_cash,
+                "gross_cash": t_gross_cash,
+                "csp_collateral": t_collat,
+                "gross_csp_collateral": t_gross_collat,
+                "hedged_relief": t_relief,
+                "dry_powder_remaining": t_powder,
+                "utilization_pct": t_util,
+                "safety_status": t_status,
+                "annual_cash_yield_dollars": t_ann_yield,
+                "monthly_cash_yield_dollars": t_mo_yield,
+                "total_account_value": t_acct_val,
+                "net_invested_capital": t_invested_cap,
+                "total_positions_cost_basis": t_cost_basis,
+                "unrealized_pnl": t_unrealized_pnl,
+                "pnl_pct": t_pnl_pct,
+                "accounts_count": len(trading_accounts_data),
+            },
             "accounts": accounts_data,
         }
 

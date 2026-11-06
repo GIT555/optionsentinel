@@ -1358,6 +1358,8 @@
 
                 <option value="ALL">All Accounts (Consolidated)</option>
 
+                <option value="TRADING">⭐ All Accounts - Trading only</option>
+
               </select>
 
             </div>
@@ -1480,6 +1482,8 @@
               <select id="equityAccountFilter" onchange="onAccountFilterChange(this.value)" class="bg-slate-950 border border-slate-600 rounded-lg px-3 py-1 text-sm text-cyan-300 font-black focus:outline-none focus:border-cyan-400">
 
                 <option value="ALL">All Accounts (Consolidated)</option>
+
+                <option value="TRADING">⭐ All Accounts - Trading only</option>
 
               </select>
 
@@ -4160,9 +4164,11 @@
 
         filterSelect.innerHTML = `<option value="ALL">All Accounts (Consolidated)</option>`
 
+          + `<option value="TRADING">⭐ All Accounts - Trading only</option>`
+
           + accountsList.map(a => `<option value="${a}">${a}</option>`).join('');
 
-        if (accountsList.includes(currentVal) || currentVal === 'ALL') {
+        if (accountsList.includes(currentVal) || currentVal === 'ALL' || currentVal === 'TRADING') {
 
           filterSelect.value = currentVal;
 
@@ -4218,19 +4224,29 @@
 
       }
 
-      const isAcctFiltered = selectedEquityAccount !== 'ALL';
+      const isTradingOnly = selectedEquityAccount === 'TRADING';
+
+      const isAcctFiltered = selectedEquityAccount !== 'ALL' && !isTradingOnly;
 
       const isTickerFiltered = selectedEquityTicker !== 'ALL';
 
-      const isFiltered = isAcctFiltered || isTickerFiltered;
+      const isFiltered = isAcctFiltered || isTickerFiltered || isTradingOnly;
+
+      const tradingAcctsList = ['INDIVIDUAL - TOD', 'ROTH IRA', 'Rollover IRA', 'Health Savings Account', 'ROTH IRA (0688)'];
 
       const filteredRows = isFiltered
 
         ? rawRows.filter(r => {
 
- 
+            if (isTradingOnly) {
 
-            if (isAcctFiltered) {
+              if (!r.accounts) return false;
+
+              const accts = r.accounts.split(',').map(s => s.trim());
+
+              if (!accts.some(a => tradingAcctsList.includes(a))) return false;
+
+            } else if (isAcctFiltered) {
 
               if (!r.accounts) return false;
 
@@ -4247,8 +4263,6 @@
             }
 
             return true;
-
- 
 
           })
 
@@ -4536,7 +4550,7 @@
 
               <td class="py-3 px-3 text-cyan-300 uppercase tracking-wide">TOTAL (${filteredRows.length} Tickers)</td>
 
-              <td class="py-3 px-3 text-cyan-200 font-mono">${(isAcctFiltered && isTickerFiltered) ? `${selectedEquityAccount} • ${selectedEquityTicker}` : (isAcctFiltered ? selectedEquityAccount : (isTickerFiltered ? `Ticker: ${selectedEquityTicker}` : 'All Accounts (Consolidated)'))}</td>
+              <td class="py-3 px-3 text-cyan-200 font-mono">${(isTradingOnly && isTickerFiltered) ? `Trading Accounts • ${selectedEquityTicker}` : (isTradingOnly ? 'All Accounts - Trading only' : ((isAcctFiltered && isTickerFiltered) ? `${selectedEquityAccount} • ${selectedEquityTicker}` : (isAcctFiltered ? selectedEquityAccount : (isTickerFiltered ? `Ticker: ${selectedEquityTicker}` : 'All Accounts (Consolidated)'))))}</td>
 
               <td class="py-3 px-3 text-slate-400 font-mono">-</td>
 
@@ -4590,15 +4604,21 @@
 
       }
 
-      const isAcctFiltered = selectedEquityAccount !== 'ALL';
+      const isTradingOnly = selectedEquityAccount === 'TRADING';
+
+      const isAcctFiltered = selectedEquityAccount !== 'ALL' && !isTradingOnly;
 
       const isTickerFiltered = selectedEquityTicker !== 'ALL';
 
-      const isFiltered = isAcctFiltered || isTickerFiltered;
+      const isFiltered = isAcctFiltered || isTickerFiltered || isTradingOnly;
+
+      const tradingAcctsList = ['INDIVIDUAL - TOD', 'ROTH IRA', 'Rollover IRA', 'Health Savings Account', 'ROTH IRA (0688)'];
 
       const filteredPositions = isFiltered
 
         ? rawPositions.filter(p => {
+
+            if (isTradingOnly && !tradingAcctsList.includes(p.account)) return false;
 
             if (isAcctFiltered && p.account !== selectedEquityAccount) return false;
 
@@ -4624,7 +4644,9 @@
 
       let filterParts = [];
 
-      if (isAcctFiltered) filterParts.push(`account <span class="text-cyan-300 font-black">${selectedEquityAccount}</span>`);
+      if (isTradingOnly) filterParts.push(`account <span class="text-cyan-300 font-black">Trading Accounts Only</span>`);
+
+      else if (isAcctFiltered) filterParts.push(`account <span class="text-cyan-300 font-black">${selectedEquityAccount}</span>`);
 
       if (isTickerFiltered) filterParts.push(`ticker <span class="text-yellow-300 font-black">${selectedEquityTicker}</span>`);
 
@@ -4820,15 +4842,17 @@
 
       const existingVals = Array.from(select.options).map(o => o.value);
 
-      const isAlreadyPopulated = acctKeys.every(k => existingVals.includes(k));
+      const isAlreadyPopulated = acctKeys.every(k => existingVals.includes(k)) && existingVals.includes('TRADING');
 
-      if (isAlreadyPopulated && select.options.length === (acctKeys.length + 1)) {
+      if (isAlreadyPopulated && select.options.length === (acctKeys.length + 2)) {
 
         return;
 
       }
 
       let html = `<option value="ALL">All Accounts (Consolidated)</option>`;
+
+      html += `<option value="TRADING">⭐ All Accounts - Trading only</option>`;
 
       acctKeys.forEach(k => {
 
@@ -4844,7 +4868,7 @@
 
       select.innerHTML = html;
 
-      select.value = existingVals.includes(currentVal) ? currentVal : (acctKeys.includes(currentVal) ? currentVal : 'ALL');
+      select.value = (existingVals.includes(currentVal) || currentVal === 'TRADING') ? currentVal : (acctKeys.includes(currentVal) ? currentVal : 'ALL');
 
     }
 
@@ -4917,9 +4941,117 @@
       let pnlPct = 0.0;
       let positionsCost = 0.0;
 
-      const isAccountSelected = selectedCashSafetyAccount && selectedCashSafetyAccount !== 'ALL' && cs.accounts && cs.accounts[selectedCashSafetyAccount];
+      const isTradingOnly = selectedCashSafetyAccount === 'TRADING';
 
-      if (isAccountSelected) {
+      const isAccountSelected = !isTradingOnly && selectedCashSafetyAccount && selectedCashSafetyAccount !== 'ALL' && cs.accounts && cs.accounts[selectedCashSafetyAccount];
+
+      if (isTradingOnly) {
+
+        const tos = cs.trading_only_summary;
+
+        const tradingKeys = Object.keys(cs.accounts || {}).filter(k => cs.accounts[k].is_trading_account);
+
+        accountTitle = `Trading Accounts (${tradingKeys.length} Accts)`;
+
+        if (tos) {
+
+          netCash = tos.net_cash;
+
+          collat = tos.csp_collateral;
+
+          grossCollat = tos.gross_csp_collateral;
+
+          hedgedRelief = tos.hedged_relief;
+
+          powder = tos.dry_powder_remaining;
+
+          utilPct = tos.utilization_pct;
+
+          annualYield = tos.annual_cash_yield_dollars;
+
+          monthlyYield = tos.monthly_cash_yield_dollars;
+
+          investedCap = tos.net_invested_capital;
+
+          acctVal = tos.total_account_value;
+
+          unrealizedPnL = tos.unrealized_pnl;
+
+          pnlPct = tos.pnl_pct;
+
+          positionsCost = tos.total_positions_cost_basis;
+
+        } else {
+
+          let sNet = 0, sCollat = 0, sGrossC = 0, sRelief = 0, sAnn = 0, sCap = 0, sVal = 0, sCost = 0;
+
+          tradingKeys.forEach(k => {
+
+            const a = cs.accounts[k];
+
+            sNet += (a.net_cash || 0);
+
+            const c = (a.csp_collateral || 0);
+
+            sCollat += c;
+
+            sGrossC += (a.gross_csp_collateral !== undefined ? a.gross_csp_collateral : c);
+
+            sRelief += (a.hedged_relief || 0);
+
+            sAnn += (a.annual_cash_yield_dollars || ((a.net_cash || 0) * 0.0475));
+
+            sCap += (a.net_invested_capital || 0);
+
+            sVal += (a.total_account_value || 0);
+
+            sCost += (a.long_cost_basis || a.total_positions_cost_basis || 0);
+
+          });
+
+          netCash = sNet;
+
+          collat = sCollat;
+
+          grossCollat = sGrossC;
+
+          hedgedRelief = sRelief;
+
+          powder = Math.max(0, netCash - collat);
+
+          utilPct = netCash > 0 ? (collat / netCash) * 100.0 : (collat > 0 ? 100.0 : 0.0);
+
+          annualYield = sAnn || (netCash * 0.0475);
+
+          monthlyYield = annualYield / 12.0;
+
+          investedCap = sCap;
+
+          acctVal = sVal;
+
+          unrealizedPnL = acctVal - investedCap;
+
+          pnlPct = investedCap > 0 ? (unrealizedPnL / investedCap * 100.0) : 0.0;
+
+          positionsCost = sCost;
+
+        }
+
+        sweepSymbol = 'SPAXX/FDRXX';
+
+        if (cashGrossLabel) cashGrossLabel.innerText = `Trading Money Market Cash`;
+
+        if (cashGrossSub) cashGrossSub.innerHTML = `SPAXX &bull; FDRXX Sweep (${tradingKeys.length} Trading Accounts)`;
+
+        if (yieldLabel) yieldLabel.innerText = `Trading Cash Yield (@ 4.75%)`;
+
+        if (yieldTag) yieldTag.innerText = `SPAXX/FDRXX @ 4.75% APY (Trading Only)`;
+
+        if (investedCapLabel) investedCapLabel.innerText = `Trading Original Capital`;
+
+        if (acctValLabel) acctValLabel.innerText = `Trading Portfolio Value`;
+
+      } else if (isAccountSelected) {
         const acct = cs.accounts[selectedCashSafetyAccount];
         accountTitle = acct.account_name || selectedCashSafetyAccount;
         netCash = acct.net_cash || 0.0;
@@ -5012,7 +5144,7 @@
       }
 
       if (badge) {
-        const prefix = isAccountSelected ? `[${accountTitle}] ` : '';
+        const prefix = (isTradingOnly || isAccountSelected) ? `[${accountTitle}] ` : '';
         const hedgeNote = hedgedRelief > 0 ? ` ($${Math.round(hedgedRelief / 1000)}k HEDGED)` : '';
         if (utilPct < 40) {
           badge.className = 'px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-black border border-white';
