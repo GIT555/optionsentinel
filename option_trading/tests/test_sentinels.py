@@ -87,6 +87,34 @@ class TestUniverseConfiguration(unittest.TestCase):
         self.assertIn("connected", status)
         self.assertIn("days_remaining", status)
 
+    def test_lookup_position_contract_matches_exact_expiration(self):
+        from option_trading.market.client import LiveOptionContract
+        client = LiveMarketClient()
+        dummy_contract_21 = LiveOptionContract(
+            contract_symbol="IAU261127C00079000", strike=79.0, dte=21, expiration="2026-11-27",
+            option_type="CALL", bid=0.55, ask=0.85, mid=0.70, last_price=0.90, volume=2,
+            open_interest=75, implied_volatility=0.25, delta_approx=0.26, gamma_approx=0.07,
+            theta_approx=-0.03, in_the_money=False
+        )
+        dummy_contract_42 = LiveOptionContract(
+            contract_symbol="IAU261218C00079000", strike=79.0, dte=42, expiration="2026-12-18",
+            option_type="CALL", bid=1.10, ask=1.60, mid=1.35, last_price=1.25, volume=5,
+            open_interest=100, implied_volatility=0.27, delta_approx=0.35, gamma_approx=0.05,
+            theta_approx=-0.03, in_the_money=False
+        )
+        client._cache_chains["IAU_17_25"] = (1e12, [dummy_contract_21])
+        client._cache_chains["IAU_28_55"] = (1e12, [dummy_contract_42])
+
+        matched_21 = client.lookup_position_contract("IAU", "CALL", 79.0, 21, expiration="2026-11-27")
+        self.assertIsNotNone(matched_21)
+        self.assertEqual(matched_21.expiration, "2026-11-27")
+        self.assertEqual(matched_21.mid, 0.70)
+
+        matched_42 = client.lookup_position_contract("IAU", "CALL", 79.0, 42, expiration="2026-12-18")
+        self.assertIsNotNone(matched_42)
+        self.assertEqual(matched_42.expiration, "2026-12-18")
+        self.assertEqual(matched_42.mid, 1.35)
+
 
 if __name__ == "__main__":
     unittest.main()

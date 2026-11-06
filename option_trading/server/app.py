@@ -1270,7 +1270,7 @@ class GammaDangerSentinel:
             if contracts >= 0 or dte > 14:
                 continue
 
-            matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte)
+            matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte, expiration=exp_str)
             curr_mid = matched.mid if matched else entry_prem
             gamma_val = matched.gamma_approx if matched else 0.02
             delta_val = matched.delta_approx if matched else -0.25
@@ -1293,7 +1293,7 @@ class GammaDangerSentinel:
                     "unrealized_pnl": round(pnl, 2),
                     "pnl_percent": round(pnl_pct, 1),
                     "recommended_action": "STRUCTURAL ROLL OUT (42 DTE) OR CLOSE",
-                    "roll_plan": f"BTC {abs(contracts)}x {sym} ${strike:.1f}{opt_type[0]} | STO {abs(contracts)}x {sym} +42DTE (Roll Out)",
+                    "roll_plan": f"BTC {abs(contracts)}x Strike ${strike:g} {opt_type.title()} [Mid: ${curr_mid:.2f}] -> STO {abs(contracts)}x +42 DTE (Roll Out)",
                 }
                 danger_positions.append(alert)
 
@@ -1368,27 +1368,22 @@ class GammaDangerSentinel:
                     tot_lots = (cov_item["shares"] // 100) + cov_item["leaps"]
                     act_sc = cov_item["short_calls"]
                     uncovered_lots = max(0, tot_lots - act_sc)
+                    is_underwater = (curr_mid < effective_entry)
+                    rsi_val = snap.rsi_14 if snap else 50.0
+                    iv_val = snap.iv_rank if snap else 0.0
+
                     if act_sc >= tot_lots and tot_lots > 0:
                         status = f"CORE SHARES (COVERED: {act_sc}/{tot_lots} Calls Active)"
-                    elif snap and snap.rsi_14 < 35.0:
-                        status = f"EQUITY DIP ZONE: RSI {snap.rsi_14:.1f} (<35 DCA)"
-                    elif snap and (snap.rsi_14 > 65.0 or snap.iv_rank > 40.0) and uncovered_lots > 0:
-                        status = f"WRITE COVERED CALL ({uncovered_lots}x Uncovered • IVR {snap.iv_rank:.0f}%)"
+                    elif is_underwater and uncovered_lots > 0:
+                        status = f"HOLD FOR REBOUND: Spot < Basis (${curr_mid:.2f} < ${effective_entry:.2f})"
+                    elif rsi_val < 45.0 and uncovered_lots > 0:
+                        status = f"WAIT FOR BOUNCE (RSI {rsi_val:.1f} < 50)"
+                    elif (rsi_val > 60.0 or iv_val > 40.0) and uncovered_lots > 0:
+                        status = f"WRITE COVERED CALL ({uncovered_lots}x Uncovered • IVR {iv_val:.0f}%)"
                     elif uncovered_lots > 0:
                         status = f"CORE EQUITY ({uncovered_lots}x CC ELIGIBLE)"
                     else:
                         status = "HOLD CORE EQUITY SHARES"
-                    if False:
-                        status = f"CORE EQUITY ({uncovered_lots}x CC ELIGIBLE)"
-                    else:
-                        pass
-                pass
-                if False:
-                    pass
-                elif False:
-                    pass
-                else:
-                    pass
 
                 results.append({
                     "index": idx,
@@ -1420,7 +1415,7 @@ class GammaDangerSentinel:
             except Exception:
                 dte = 30
 
-            matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte)
+            matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte, expiration=exp_str)
             curr_mid = matched.mid if matched else entry_prem
             opt_delta = matched.delta_approx if matched else (0.85 if (opt_type == "CALL" and contracts > 0) else (-0.25 if opt_type == "PUT" else 0.30))
 
@@ -1473,8 +1468,12 @@ class GammaDangerSentinel:
                         roll_target_dte = best_roll.dte
                         roll_net_credit = round(best_roll.mid - curr_mid, 2)
                         total_c = round(roll_net_credit * abs(contracts) * 100.0, 2)
-                        cred_str = f"+${roll_net_credit:.2f} credit (+${total_c:,.0f})" if roll_net_credit >= 0 else f"-${abs(roll_net_credit):.2f} debit"
-                        roll_plan = f"BTC {abs(contracts)}x ${strike:g}{opt_type[0]} @ ${curr_mid:.2f} | STO {abs(contracts)}x ${best_roll.strike:g}{opt_type[0]} ({best_roll.expiration}, {best_roll.dte} DTE) @ ${best_roll.mid:.2f} [{cred_str}]"
+                        cred_str = f"+${roll_net_credit:.2f} credit (+${total_c:,.0f})" if roll_net_credit >= 0 else f"-${abs(roll_net_credit):.2f} debit (-${abs(total_c):,.0f})"
+                        roll_plan = (
+                            f"BTC {abs(contracts)}x Strike ${strike:g} {opt_type.title()} [Mid: ${curr_mid:.2f}] | "
+                            f"STO {abs(contracts)}x Strike ${best_roll.strike:g} {opt_type.title()} ({best_roll.expiration}, {best_roll.dte} DTE) [Mid: ${best_roll.mid:.2f}] "
+                            f"[{cred_str}]"
+                        )
                 except Exception:
                     pass
 
@@ -1728,18 +1727,25 @@ class GammaDangerSentinel:
             protect_floor = max(avg_equity_basis, cc_floor)
             protect_label = f"Share Basis ${avg_equity_basis:.2f}" if avg_equity_basis > 0 else f"LEAP B/E ${cc_floor:.2f}"
 
-            # 1. CAPITAL DEFENSE GUARD: Never advise "SELL NOW" if strike is below basis or underwater
-            if cc_capacity > 0 and (has_below_basis_warning or not cc_is_suggestion or (protect_floor > 0 and spot < protect_floor)):
+            # 1. CAPITAL DEFENSE GUARD: Never advise "SELL NOW" if no safe strike exists above basis / breakeven
+            if cc_capacity > 0 and (has_below_basis_warning or not cc_is_suggestion or (cc_strike > 0 and cc_strike < protect_floor)):
                 if cc_strike > 0 and cc_strike < protect_floor:
                     reason_msg = f"Call Strike ${cc_strike:g} < {protect_label}"
                 else:
-                    reason_msg = f"Spot ${spot:.2f} < {protect_label}"
+                    reason_msg = f"No Strike >= {protect_label}"
                 when_to_sell = f"DO NOT SELL BELOW BASIS ({reason_msg})"
                 directive = (
-                    f"CAPITAL DEFENSE: No safe call suggested! Spot (${spot:.2f}) is below your {protect_label} (${protect_floor:.2f}). "
+                    f"CAPITAL DEFENSE: No safe call suggested! All liquid strikes are below your {protect_label} (${protect_floor:.2f}). "
                     f"Selling calls below basis risks locking in a loss. Hold shares for rebound or sell calls >=${protect_floor:.2f} only."
                 )
-            # 2. Oversold / Beaten-Down RSI Guard: Do not sell calls during a deep pullback right before a bounce
+            # 2. Shares underwater (< basis): Advise waiting for rebound
+            elif cc_capacity > 0 and (protect_floor > 0 and spot < protect_floor):
+                when_to_sell = f"WAIT FOR REBOUND (Spot ${spot:.2f} < {protect_label})"
+                directive = (
+                    f"WAIT FOR REBOUND: Spot (${spot:.2f}) is below your {protect_label} (${protect_floor:.2f}). "
+                    f"Suggested ${cc_strike:g} Call is safe (above basis), but waiting for rebound will yield higher premium. Hold shares for rebound or sell >=${protect_floor:.2f} on green days."
+                )
+            # 3. Oversold / Beaten-Down RSI Guard: Do not sell calls during a deep pullback right before a bounce
             elif cc_capacity > 0 and rsi < 45.0:
                 when_to_sell = f"WAIT FOR BOUNCE (RSI {rsi:.1f} Pullback -> Wait for RSI > 50)"
                 if is_lev:

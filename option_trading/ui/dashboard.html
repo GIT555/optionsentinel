@@ -3906,6 +3906,8 @@
 
               else if (pos.status && pos.status.includes('WRITE COVERED CALL')) badgeBg = 'bg-yellow-400 text-black font-black';
 
+              else if (pos.status && (pos.status.includes('HOLD FOR REBOUND') || pos.status.includes('WAIT FOR BOUNCE'))) badgeBg = 'bg-amber-950 text-amber-300 border border-amber-500/80 font-black';
+
               else badgeBg = 'bg-cyan-500 text-black';
 
             }

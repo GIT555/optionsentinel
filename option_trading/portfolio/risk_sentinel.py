@@ -161,7 +161,7 @@ class GammaDangerSentinel:
             if contracts >= 0 or dte > 14:
                 continue
 
-            matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte)
+            matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte, expiration=exp_str)
             curr_mid = matched.mid if matched else entry_prem
             gamma_val = matched.gamma_approx if matched else 0.02
             delta_val = matched.delta_approx if matched else -0.25
@@ -184,7 +184,7 @@ class GammaDangerSentinel:
                     "unrealized_pnl": round(pnl, 2),
                     "pnl_percent": round(pnl_pct, 1),
                     "recommended_action": "STRUCTURAL ROLL OUT (42 DTE) OR CLOSE",
-                    "roll_plan": f"BTC {abs(contracts)}x {sym} ${strike:.1f}{opt_type[0]} | STO {abs(contracts)}x {sym} +42DTE (Roll Out)",
+                    "roll_plan": f"BTC {abs(contracts)}x Strike ${strike:g} {opt_type.title()} [Mid: ${curr_mid:.2f}] | STO {abs(contracts)}x +42 DTE (Roll Out)",
                 }
                 danger_positions.append(alert)
 
@@ -298,7 +298,7 @@ class GammaDangerSentinel:
                 dte = 30
 
             snap = self.scanner.snapshots.get(sym)
-            matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte)
+            matched = self.scanner.market_client.lookup_position_contract(sym, opt_type, strike, dte, expiration=exp_str)
             curr_mid = matched.mid if matched else entry_prem
             gamma_val = matched.gamma_approx if matched else 0.02
             delta_val = matched.delta_approx if matched else (-0.25 if opt_type == "PUT" else 0.50)

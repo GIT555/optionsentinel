@@ -1140,25 +1140,40 @@ class LiveMarketClient:
         return contracts
 
     def lookup_position_contract(
-        self, symbol: str, option_type: str, strike: float, dte: int
+        self, symbol: str, option_type: str, strike: float, dte: int, expiration: Optional[str] = None
     ) -> Optional[LiveOptionContract]:
         """
         Fast O(1) cache-aligned contract lookup for manual/Fidelity positions.
-        Reuses the standard 28-55 DTE or 340+ DTE LEAP cached chains in memory/SQLite
+        Reuses cached chains in memory/SQLite targeting the position's expiration window
         so evaluating 16+ positions completes in <5 milliseconds without blocking UI.
         """
         sym = symbol.upper()
         opt_type = option_type.upper()
-        bucket_key = f"{sym}_LEAP_ALL_340" if dte >= 180 else f"{sym}_28_55"
 
-        # Live (TTL-cached in memory) chain fetch; no persisted or stale data.
         if dte >= 180:
-            chain = self.get_live_leap_options(sym, min_dte=340, option_type=opt_type)
+            chain = self.get_live_leap_options(sym, min_dte=max(180, dte - 60), option_type=opt_type)
+        elif dte <= 27:
+            # Short-dated option (< 28 DTE): target window matching position expiration
+            min_d = max(0, dte - 4)
+            max_d = max(min_d + 7, dte + 4)
+            chain = self.get_live_option_chain(sym, min_d, max_d)
         else:
             chain = self.get_live_option_chain(sym, 28, 55)
 
+        # 1. First priority: match exact expiration date if provided
+        if expiration:
+            exp_matches = [
+                c for c in chain
+                if c.option_type == opt_type and abs(c.strike - strike) < 0.01 and c.expiration == expiration
+            ]
+            if exp_matches:
+                return exp_matches[0]
+
         matching = [c for c in chain if c.option_type == opt_type and abs(c.strike - strike) < 0.01]
-        return matching[0] if matching else None
+        if not matching:
+            return None
+        # 2. Pick contract closest to the target DTE
+        return min(matching, key=lambda c: abs(c.dte - dte))
 
     def get_live_leap_options(
         self, symbol: str, min_dte: int = 180, option_type: str = "CALL"

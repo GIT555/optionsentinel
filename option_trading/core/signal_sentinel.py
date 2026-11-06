@@ -745,7 +745,7 @@ class SignalSentinel:
                 dte = 30
 
             # Query real live quote from market (cache-aligned O(1) lookup)
-            matched = self.market_client.lookup_position_contract(sym, opt_type, strike, dte)
+            matched = self.market_client.lookup_position_contract(sym, opt_type, strike, dte, expiration=exp_str)
             curr_mid = matched.mid if matched else entry_prem
 
             if contracts < 0:
