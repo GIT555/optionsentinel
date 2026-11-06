@@ -1729,9 +1729,12 @@ class GammaDangerSentinel:
             protect_label = f"Share Basis ${avg_equity_basis:.2f}" if avg_equity_basis > 0 else f"LEAP B/E ${cc_floor:.2f}"
 
             # 1. CAPITAL DEFENSE GUARD: Never advise "SELL NOW" if strike is below basis or underwater
-            if cc_capacity > 0 and (has_below_basis_warning or not cc_is_suggestion or (cc_floor > 0 and spot < cc_floor)):
-                strike_msg = f"Strike ${cc_strike:g}" if cc_strike > 0 else f"Spot ${spot:.2f}"
-                when_to_sell = f"DO NOT SELL BELOW BASIS ({strike_msg} < {protect_label})"
+            if cc_capacity > 0 and (has_below_basis_warning or not cc_is_suggestion or (protect_floor > 0 and spot < protect_floor)):
+                if cc_strike > 0 and cc_strike < protect_floor:
+                    reason_msg = f"Call Strike ${cc_strike:g} < {protect_label}"
+                else:
+                    reason_msg = f"Spot ${spot:.2f} < {protect_label}"
+                when_to_sell = f"DO NOT SELL BELOW BASIS ({reason_msg})"
                 directive = (
                     f"CAPITAL DEFENSE: No safe call suggested! Spot (${spot:.2f}) is below your {protect_label} (${protect_floor:.2f}). "
                     f"Selling calls below basis risks locking in a loss. Hold shares for rebound or sell calls >=${protect_floor:.2f} only."
