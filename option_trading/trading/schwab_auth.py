@@ -1,11 +1,13 @@
 """
-Schwab Persistent Automated Browser Auth (schwab_headless_auth.py)
-==================================================================
+Schwab Persistent Automated Browser Auth (schwab_auth.py)
+=========================================================
 Uses a persistent Microsoft Edge / Chromium profile so Schwab remembers your device.
 - Direct URL interception: Intercepts https://127.0.0.1/?code=... directly in memory.
 - No local web server needed, no certificate warnings, no port 443 conflicts.
 - First time: Browser opens, you log in once and check "Trust this device".
 - Subsequent runs: Automatically handles authentication and captures 7-day token.
+- Non-blocking token exchange: Exchanges code immediately upon interception before
+  browser teardown to prevent persistent profile closing hangs on Windows.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ import os
 import sys
 import time
 import urllib.parse
-from typing import Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from ..market.client import SchwabReadOnlyClient, TokenBucketRateLimiter
 from ..config import DATA_DIR
@@ -46,7 +48,8 @@ def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> T
     print(f"[*] Profile Directory: {PROFILE_DIR}")
     print("[*] Launching browser...")
 
-    captured_code: list[str] = []
+    captured_code: List[str] = []
+    exchange_result: List[Any] = [False, "No token captured"]
 
     with sync_playwright() as p:
         browser_channel = "msedge"
@@ -74,23 +77,55 @@ def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> T
 
         page = context.pages[0] if context.pages else context.new_page()
 
+        def do_immediate_exchange(auth_code: str):
+            if exchange_result[0]:
+                return  # already successfully exchanged
+            print(f"\n[*] Intercepted Schwab OAuth authorization code: {auth_code[:15]}...")
+            print("[*] Exchanging code immediately with Schwab OAuth API for 7-day token...")
+            ok, msg = sc.exchange_code_from_redirect(auth_code)
+            exchange_result[0] = ok
+            exchange_result[1] = msg
+            if ok:
+                print(f"\033[92;1m[SUCCESS]: {msg}\033[0m")
+                print("[*] 7-day token securely written to data/schwab_tokens.json.")
+            else:
+                print(f"\033[91;1m[ERROR]: Token exchange failed: {msg}\033[0m")
+
         # Direct in-memory route interception on the entire browser context
         def handle_schwab_redirect(route):
             url = route.request.url
+            c = ""
             if "code=" in url:
                 parsed = urllib.parse.urlparse(url)
                 qs = urllib.parse.parse_qs(parsed.query)
                 c = qs.get("code", [""])[0]
                 if c and c not in captured_code:
                     captured_code.append(c)
-            route.fulfill(
-                status=200,
-                content_type="text/html",
-                body="""<!DOCTYPE html><html><body style="background:#0b1329;color:#4ade80;font-family:sans-serif;text-align:center;padding:50px;">
-                <h1>&#9989; Schwab Market Data Token Captured!</h1>
-                <p style="color:#cbd5e1;">Exchanging token and closing browser...</p>
-                </body></html>""",
-            )
+
+            # Perform exchange BEFORE responding so user sees accurate status in browser
+            if c:
+                do_immediate_exchange(c)
+
+            if exchange_result[0]:
+                body = """<!DOCTYPE html><html><body style="background:#0b1329;color:#4ade80;font-family:sans-serif;text-align:center;padding:50px;">
+                <h1>&#9989; Schwab Market Data Token Activated!</h1>
+                <p style="color:#f8fafc;font-size:18px;">7-Day Access Token Saved & Verified.</p>
+                <p style="color:#94a3b8;font-size:14px;">Option Sentinel is now connected to live Thinkorswim feeds. Closing browser...</p>
+                </body></html>"""
+            else:
+                body = f"""<!DOCTYPE html><html><body style="background:#0b1329;color:#f87171;font-family:sans-serif;text-align:center;padding:50px;">
+                <h1>&#10060; Schwab Token Exchange Failed</h1>
+                <p style="color:#f8fafc;font-size:16px;">{exchange_result[1]}</p>
+                </body></html>"""
+
+            try:
+                route.fulfill(
+                    status=200,
+                    content_type="text/html",
+                    body=body,
+                )
+            except Exception:
+                pass
 
         context.route("**127.0.0.1**", handle_schwab_redirect)
 
@@ -103,6 +138,7 @@ def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> T
                 c = qs.get("code", [""])[0]
                 if c and c not in captured_code:
                     captured_code.append(c)
+                    do_immediate_exchange(c)
 
         context.on("request", on_request)
 
@@ -119,32 +155,58 @@ def run_schwab_browser_auth(headless: bool = False, timeout_sec: int = 180) -> T
 
         start_time = time.time()
         while time.time() - start_time < timeout_sec:
-            # Check if captured via request interception
-            if captured_code:
+            # Check if captured via request interception or exchange already done
+            if exchange_result[0] or captured_code:
+                if captured_code and not exchange_result[0]:
+                    do_immediate_exchange(captured_code[0])
                 break
 
             # Also check page.url directly
-            curr_url = page.url
-            if "127.0.0.1" in curr_url and "code=" in curr_url:
-                parsed = urllib.parse.urlparse(curr_url)
-                qs = urllib.parse.parse_qs(parsed.query)
-                c = qs.get("code", [""])[0]
-                if c:
-                    captured_code.append(c)
-                    break
+            try:
+                curr_url = page.url
+                if "127.0.0.1" in curr_url and "code=" in curr_url:
+                    parsed = urllib.parse.urlparse(curr_url)
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    c = qs.get("code", [""])[0]
+                    if c:
+                        if c not in captured_code:
+                            captured_code.append(c)
+                        do_immediate_exchange(c)
+                        break
+            except Exception:
+                pass
 
-            time.sleep(0.5)
+            time.sleep(0.3)
 
-        context.close()
+        # Allow browser to display the green confirmation screen briefly
+        time.sleep(1.0)
 
-    if not captured_code:
+        # Clean up browser pages without blocking on persistent context shutdown
+        try:
+            for p_item in list(context.pages):
+                try:
+                    p_item.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        try:
+            import threading
+            t = threading.Thread(target=context.close, daemon=True)
+            t.start()
+            t.join(timeout=1.5)
+        except Exception:
+            pass
+
+    if not captured_code and not exchange_result[0]:
         return False, f"Timed out after {timeout_sec}s waiting for Schwab login."
 
-    raw_code = captured_code[0]
-    print("[*] Captured authorization code! Exchanging for 7-day token...")
+    if not exchange_result[0] and captured_code:
+        ok, msg = sc.exchange_code_from_redirect(captured_code[0])
+        return ok, msg
 
-    ok, msg = sc.exchange_code_from_redirect(raw_code)
-    return ok, msg
+    return bool(exchange_result[0]), str(exchange_result[1])
 
 
 if __name__ == "__main__":

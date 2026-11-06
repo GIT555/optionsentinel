@@ -2018,7 +2018,8 @@ class SentinelRequestHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 import subprocess
                 base_dir = os.path.dirname(os.path.abspath(__file__))
-                subprocess.Popen([sys.executable, os.path.join(base_dir, "schwab_headless_auth.py")], cwd=base_dir)
+                auth_script = os.path.normpath(os.path.join(base_dir, "..", "trading", "schwab_auth.py"))
+                subprocess.Popen([sys.executable, auth_script])
                 self._send_json_response({
                     "status": "ok",
                     "listener_started": True,
