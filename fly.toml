@@ -1,0 +1,33 @@
+# fly.toml - Fly.io 24/7 Always-On Configuration for Option Sentinel
+app = "option-sentinel"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8765"
+
+[http_service]
+  internal_port = 8765
+  force_https = true
+  auto_stop_machines = false      # CRITICAL: Prevents Fly from putting the app to sleep!
+  auto_start_machines = true
+  min_machines_running = 1        # Keep 1 micro-instance running 24/7
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpus = 1
+
+# Optional persistent volume for SQLite database & settings ($0.15/GB/mo)
+# Run `fly volumes create sentinel_data --size 1` before first deploy
+[mounts]
+  source = "sentinel_data"
+  destination = "/app/data"
+  initial_size = "1gb"
